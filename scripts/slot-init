@@ -1,0 +1,182 @@
+#!/bin/bash
+# Initialize flowslot for a project
+# Usage: slot init
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# Source common functions
+# shellcheck source=lib/common.sh
+source "$LIB_DIR/common.sh"
+
+show_help() {
+  cat << EOF
+Usage: slot init
+
+Initialize flowslot for the current project.
+
+This will:
+  1. Create .slotconfig with project settings
+  2. Set up slots directory for worktrees
+  3. Copy .env files to templates
+  4. Clone bare repository
+
+Options:
+  -h, --help    Show this help message
+EOF
+}
+
+# Handle help flag
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  show_help
+  exit 0
+fi
+
+# Check if already initialized
+if [ -f ".slotconfig" ]; then
+  die ".slotconfig already exists in this directory. Remove it first if you want to reinitialize."
+fi
+
+# Get current directory as source
+SOURCE_DIR="$(pwd)"
+PROJECT_NAME="$(basename "$SOURCE_DIR")"
+
+# Get git remote URL
+if ! REPO_URL=$(git remote get-url origin 2>/dev/null); then
+  die "Not a git repository or no 'origin' remote found. Please run: git remote add origin <url>"
+fi
+
+# Prompt for slots directory (default: sibling)
+log_info "Slots directory (where worktrees will live):"
+echo "  Default: ../${PROJECT_NAME}-slots"
+read -r -p "Enter path [../${PROJECT_NAME}-slots]: " SLOTS_DIR_INPUT
+SLOTS_DIR="${SLOTS_DIR_INPUT:-../${PROJECT_NAME}-slots}"
+
+# Convert to absolute path
+if [[ "$SLOTS_DIR" != /* ]]; then
+  SLOTS_DIR="$(cd "$(dirname "$SOURCE_DIR")" && pwd)/$(basename "$SLOTS_DIR")"
+fi
+
+# Prompt for remote host
+echo ""
+echo "Remote host (Tailscale IP or hostname):"
+read -r -p "Enter remote host [ubuntu@100.x.y.z]: " REMOTE_HOST_INPUT
+REMOTE_HOST="${REMOTE_HOST_INPUT:-ubuntu@100.x.y.z}"
+
+# Prompt for remote base directory
+echo ""
+echo "Remote base directory (where slots will live on remote):"
+read -r -p "Enter path [/srv/${PROJECT_NAME}]: " REMOTE_BASE_INPUT
+REMOTE_BASE="${REMOTE_BASE_INPUT:-/srv/${PROJECT_NAME}}"
+
+# Prompt for AWS instance ID
+echo ""
+echo "AWS EC2 Instance ID:"
+read -r -p "Enter instance ID: " AWS_INSTANCE_ID
+
+# Prompt for AWS region
+echo ""
+echo "AWS Region:"
+read -r -p "Enter region [eu-central-1]: " AWS_REGION_INPUT
+AWS_REGION="${AWS_REGION_INPUT:-eu-central-1}"
+
+# Create slots directory
+mkdir -p "$SLOTS_DIR"
+TEMPLATE_DIR="$SLOTS_DIR/.env-templates"
+mkdir -p "$TEMPLATE_DIR"
+
+# Find and copy .env files from source
+echo ""
+log_info "Copying .env files to templates..."
+env_files=$(find "$SOURCE_DIR" -maxdepth 3 -name ".env*" -type f || true)
+if [ -z "$env_files" ]; then
+  log_warn "No .env files found in source directory"
+else
+  echo "$env_files" | while read -r env_file; do
+    rel_path="${env_file#$SOURCE_DIR/}"
+    dest_file="$TEMPLATE_DIR/$rel_path"
+    mkdir -p "$(dirname "$dest_file")"
+    cp "$env_file" "$dest_file"
+    echo "  Copied: $rel_path"
+  done
+fi
+
+# Clone bare repository locally
+echo ""
+log_info "Cloning bare repository..."
+if [ -d "$SLOTS_DIR/repo.git" ]; then
+  log_info "Bare repo exists, fetching updates..."
+  (cd "$SLOTS_DIR/repo.git" && git fetch --all --prune)
+else
+  git clone --bare "$REPO_URL" "$SLOTS_DIR/repo.git"
+fi
+
+# Detect compose files
+echo ""
+log_info "Detecting Docker Compose files..."
+DETECTED_COMPOSE_FILES=""
+for f in docker-compose.yml docker-compose.yaml compose.yml compose.yaml docker-compose.dev.yml; do
+  if [ -f "$SOURCE_DIR/$f" ]; then
+    if [ -z "$DETECTED_COMPOSE_FILES" ]; then
+      DETECTED_COMPOSE_FILES="$f"
+    else
+      DETECTED_COMPOSE_FILES="$DETECTED_COMPOSE_FILES $f"
+    fi
+    echo "  Found: $f"
+  fi
+done
+
+if [ -z "$DETECTED_COMPOSE_FILES" ]; then
+  log_warn "No compose files found"
+  DETECTED_COMPOSE_FILES="docker-compose.yml"
+fi
+
+echo ""
+echo "Docker Compose files to use (space-separated):"
+read -r -p "Enter files [$DETECTED_COMPOSE_FILES]: " COMPOSE_FILES_INPUT
+COMPOSE_FILES="${COMPOSE_FILES_INPUT:-$DETECTED_COMPOSE_FILES}"
+
+# Check for docker-compose.slot.yml
+if [ ! -f "$SOURCE_DIR/docker-compose.slot.yml" ]; then
+  echo ""
+  log_warn "docker-compose.slot.yml not found in source directory."
+  echo "You'll need to create it to enable port overrides for slots."
+  echo "See: $SCRIPT_DIR/../templates/docker-compose.slot.example.yml"
+fi
+
+# Check for slot-ports.sh
+if [ ! -f "$SOURCE_DIR/slot-ports.sh" ]; then
+  echo ""
+  log_warn "slot-ports.sh not found in source directory."
+  echo "You'll need to create it to define port variables."
+  echo "See: $SCRIPT_DIR/../templates/slot-ports.example.sh"
+fi
+
+# Create .slotconfig
+cat > ".slotconfig" << EOF
+# Created by: slot init
+# Project: $PROJECT_NAME
+
+SLOT_PROJECT_NAME="$PROJECT_NAME"
+SLOT_SOURCE_DIR="$SOURCE_DIR"
+SLOT_SLOTS_DIR="$SLOTS_DIR"
+SLOT_REPO_URL="$REPO_URL"
+SLOT_REMOTE_HOST="$REMOTE_HOST"
+SLOT_REMOTE_BASE="$REMOTE_BASE"
+SLOT_AWS_INSTANCE_ID="$AWS_INSTANCE_ID"
+SLOT_AWS_REGION="$AWS_REGION"
+SLOT_TEMPLATE_DIR="$TEMPLATE_DIR"
+SLOT_COMPOSE_FILES="$COMPOSE_FILES"
+EOF
+
+echo ""
+success "Initialized flowslot for $PROJECT_NAME"
+echo ""
+echo "Next steps:"
+echo "  1. Create slot-ports.sh with your port definitions"
+echo "  2. Create docker-compose.slot.yml with port overrides"
+echo "  3. Run 'slot server start' to start the EC2 instance"
+echo "  4. Run 'slot open <name> [branch]' to create your first slot"
+

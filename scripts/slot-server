@@ -1,0 +1,129 @@
+#!/bin/bash
+# Manage EC2 instance
+# Usage: slot server <start|stop|status>
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# Source common functions
+# shellcheck source=lib/common.sh
+source "$LIB_DIR/common.sh"
+
+show_help() {
+  cat << EOF
+Usage: slot server <start|stop|status>
+
+Manage the EC2 instance for flowslot.
+
+Commands:
+  start     Start the EC2 instance
+  stop      Stop the EC2 instance
+  status    Show instance status
+
+Options:
+  -h, --help    Show this help message
+EOF
+}
+
+# Handle help flag
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  show_help
+  exit 0
+fi
+
+if [ -z "${1:-}" ]; then
+  log_error "Command required"
+  echo ""
+  show_help
+  exit 1
+fi
+
+COMMAND="$1"
+
+# Check if instance ID is configured
+if [ -z "${SLOT_AWS_INSTANCE_ID:-}" ] || [ -z "${SLOT_AWS_REGION:-}" ]; then
+  die "SLOT_AWS_INSTANCE_ID and SLOT_AWS_REGION must be set in .slotconfig. Run 'slot init' to configure."
+fi
+
+case "$COMMAND" in
+  start)
+    log_info "Starting instance $SLOT_AWS_INSTANCE_ID..."
+    aws ec2 start-instances \
+      --instance-ids "$SLOT_AWS_INSTANCE_ID" \
+      --region "$SLOT_AWS_REGION" \
+      --output text > /dev/null
+    
+    log_info "Waiting for instance to be running..."
+    aws ec2 wait instance-running \
+      --instance-ids "$SLOT_AWS_INSTANCE_ID" \
+      --region "$SLOT_AWS_REGION"
+    
+    # Get Tailscale IP (with retry)
+    log_info "Waiting for Tailscale to connect..."
+    for i in {1..6}; do
+      sleep 5
+      TAILSCALE_IP=$(ssh "$SLOT_REMOTE_HOST" "tailscale ip -4" 2>/dev/null | head -1 || echo "")
+      if [ -n "$TAILSCALE_IP" ]; then
+        break
+      fi
+    done
+    
+    success "Instance running"
+    if [ -n "${TAILSCALE_IP:-}" ]; then
+      echo "  Tailscale IP: $TAILSCALE_IP"
+    else
+      log_warn "Tailscale not connected yet. Run 'sudo tailscale up' on the remote server."
+    fi
+    ;;
+    
+  stop)
+    log_info "Stopping instance $SLOT_AWS_INSTANCE_ID..."
+    aws ec2 stop-instances \
+      --instance-ids "$SLOT_AWS_INSTANCE_ID" \
+      --region "$SLOT_AWS_REGION" \
+      --output text > /dev/null
+    
+    log_info "Waiting for instance to be stopped..."
+    aws ec2 wait instance-stopped \
+      --instance-ids "$SLOT_AWS_INSTANCE_ID" \
+      --region "$SLOT_AWS_REGION"
+    
+    success "Instance stopped"
+    ;;
+    
+  status)
+    STATE=$(aws ec2 describe-instances \
+      --instance-ids "$SLOT_AWS_INSTANCE_ID" \
+      --region "$SLOT_AWS_REGION" \
+      --query 'Reservations[0].Instances[0].State.Name' \
+      --output text)
+    
+    echo "Instance: $SLOT_AWS_INSTANCE_ID"
+    echo "State: $STATE"
+    
+    if [ "$STATE" = "running" ]; then
+      PUBLIC_IP=$(aws ec2 describe-instances \
+        --instance-ids "$SLOT_AWS_INSTANCE_ID" \
+        --region "$SLOT_AWS_REGION" \
+        --query 'Reservations[0].Instances[0].PublicIpAddress' \
+        --output text)
+      
+      echo "Public IP: $PUBLIC_IP"
+      
+      if [ -n "${SLOT_REMOTE_HOST:-}" ]; then
+        TAILSCALE_IP=$(ssh "$SLOT_REMOTE_HOST" "tailscale ip -4" 2>/dev/null | head -1 || echo "not connected")
+        echo "Tailscale IP: $TAILSCALE_IP"
+      fi
+    fi
+    ;;
+    
+  *)
+    log_error "Unknown command: $COMMAND"
+    echo ""
+    show_help
+    exit 1
+    ;;
+esac
+

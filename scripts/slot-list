@@ -1,0 +1,93 @@
+#!/bin/bash
+# List all slots
+# Usage: slot list
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# Source common functions
+# shellcheck source=lib/common.sh
+source "$LIB_DIR/common.sh"
+
+show_help() {
+  cat << EOF
+Usage: slot list
+
+List all active slots for the current project.
+
+Options:
+  -h, --help    Show this help message
+EOF
+}
+
+# Handle help flag
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  show_help
+  exit 0
+fi
+
+echo "Active slots for $SLOT_PROJECT_NAME:"
+echo ""
+
+# Batch all data collection in single SSH call
+SLOT_DATA=$(ssh "$SLOT_REMOTE_HOST" bash << 'REMOTE_SCRIPT'
+  set -euo pipefail
+  BASE_DIR="${SLOT_REMOTE_BASE}"
+  
+  # Get all slots
+  slots=$(ls -1 "$BASE_DIR" 2>/dev/null | grep -v '^repo.git$' || true)
+  
+  if [ -z "$slots" ]; then
+    echo "NO_SLOTS"
+    exit 0
+  fi
+  
+  # Collect data for each slot in single pass
+  for slot in $slots; do
+    slot_path="$BASE_DIR/$slot"
+    
+    # Get branch
+    branch=$(cd "$slot_path" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    
+    # Get container count (running)
+    containers=$(cd "$slot_path" && docker compose ps -q 2>/dev/null | wc -l || echo "0")
+    
+    # Try to get slot number from environment or compose project name
+    slot_num=$(cd "$slot_path" && docker compose config 2>/dev/null | grep -oP 'SLOT=\K[0-9]+' | head -1 || echo "")
+    
+    # Output: slot|branch|containers|slot_num
+    echo "${slot}|${branch}|${containers}|${slot_num}"
+  done
+REMOTE_SCRIPT
+)
+
+if [ "$SLOT_DATA" = "NO_SLOTS" ]; then
+  echo "  No slots found"
+  exit 0
+fi
+
+printf "%-15s %-20s %-15s %-10s\n" "NAME" "BRANCH" "PORTS" "STATUS"
+echo "----------------------------------------------------------------"
+
+# Process collected data
+while IFS='|' read -r slot branch containers slot_num; do
+  # Calculate ports if slot_num available
+  if [ -n "$slot_num" ] && [ "$slot_num" != "" ]; then
+    port_base=$((PORT_BASE_START + slot_num * PORT_RANGE))
+    ports="$port_base-$((port_base + PORT_RANGE - 1))"
+  else
+    ports="unknown"
+  fi
+  
+  # Determine status
+  if [ "$containers" -gt 0 ]; then
+    status="running"
+  else
+    status="stopped"
+  fi
+  
+  printf "%-15s %-20s %-15s %-10s\n" "$slot" "$branch" "$ports" "$status"
+done <<< "$SLOT_DATA"
+

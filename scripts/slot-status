@@ -1,0 +1,129 @@
+#!/bin/bash
+# Show remote server resource usage
+# Usage: slot status
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# Source common functions
+# shellcheck source=lib/common.sh
+source "$LIB_DIR/common.sh"
+
+show_help() {
+  cat << EOF
+Usage: slot status
+
+Show remote server resource usage and status.
+
+Options:
+  -h, --help    Show this help message
+EOF
+}
+
+# Handle help flag
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  show_help
+  exit 0
+fi
+
+echo "Remote server status:"
+echo ""
+
+# Get instance status
+if [ -n "${SLOT_AWS_INSTANCE_ID:-}" ] && [ -n "${SLOT_AWS_REGION:-}" ]; then
+  echo "=== EC2 Instance ==="
+  aws ec2 describe-instances \
+    --instance-ids "$SLOT_AWS_INSTANCE_ID" \
+    --region "$SLOT_AWS_REGION" \
+    --query 'Reservations[0].Instances[0].[State.Name,PublicIpAddress,PrivateIpAddress]' \
+    --output text | awk '{print "  State: " $1 "\n  Public IP: " $2 "\n  Private IP: " $3}'
+  
+  echo ""
+fi
+
+# Batch all remote data collection in single SSH call
+REMOTE_DATA=$(ssh "$SLOT_REMOTE_HOST" bash << 'REMOTE_SCRIPT'
+  set -euo pipefail
+  
+  # Get Tailscale IP
+  tailscale_ip=$(tailscale ip -4 2>/dev/null | head -1 || echo "unknown")
+  
+  # Get Docker stats
+  running_containers=$(docker ps -q 2>/dev/null | wc -l || echo "0")
+  total_containers=$(docker ps -a -q 2>/dev/null | wc -l || echo "0")
+  
+  # Get memory usage (first 10 containers)
+  memory_stats=$(docker stats --no-stream --format "{{.Name}}: {{.MemUsage}}" 2>/dev/null | head -10 || echo "(no containers running)")
+  
+  # Get disk usage
+  disk_usage=$(df -h / | tail -1 | awk '{print $3 " / " $2 " (" $5 " used)"}')
+  
+  # Get slot container counts
+  base_dir="${SLOT_REMOTE_BASE}"
+  slots=$(ls -1 "$base_dir" 2>/dev/null | grep -v '^repo.git$' || true)
+  slot_info=""
+  if [ -n "$slots" ]; then
+    for slot in $slots; do
+      slot_path="$base_dir/$slot"
+      containers=$(cd "$slot_path" && docker compose ps -q 2>/dev/null | wc -l || echo "0")
+      if [ "$containers" -gt 0 ]; then
+        slot_info="${slot_info}${slot}|${containers}\n"
+      fi
+    done
+  fi
+  
+  # Output all data separated by markers
+  echo "TAILSCALE_IP|${tailscale_ip}"
+  echo "RUNNING_CONTAINERS|${running_containers}"
+  echo "TOTAL_CONTAINERS|${total_containers}"
+  echo "DISK_USAGE|${disk_usage}"
+  echo "MEMORY_STATS_START"
+  echo "$memory_stats"
+  echo "MEMORY_STATS_END"
+  echo "SLOT_INFO_START"
+  echo -e "$slot_info"
+  echo "SLOT_INFO_END"
+REMOTE_SCRIPT
+)
+
+# Parse remote data
+TAILSCALE_IP=$(echo "$REMOTE_DATA" | grep "^TAILSCALE_IP|" | cut -d'|' -f2)
+RUNNING_CONTAINERS=$(echo "$REMOTE_DATA" | grep "^RUNNING_CONTAINERS|" | cut -d'|' -f2)
+TOTAL_CONTAINERS=$(echo "$REMOTE_DATA" | grep "^TOTAL_CONTAINERS|" | cut -d'|' -f2)
+DISK_USAGE=$(echo "$REMOTE_DATA" | grep "^DISK_USAGE|" | cut -d'|' -f2)
+
+# Display EC2 info with Tailscale IP
+if [ -n "${SLOT_AWS_INSTANCE_ID:-}" ] && [ -n "${SLOT_AWS_REGION:-}" ]; then
+  echo "  Tailscale IP: $TAILSCALE_IP"
+  echo ""
+fi
+
+# Display Docker stats
+echo "=== Docker Resources ==="
+echo "  Running containers: $RUNNING_CONTAINERS"
+echo "  Total containers: $TOTAL_CONTAINERS"
+echo ""
+echo "  Memory usage:"
+echo "$REMOTE_DATA" | sed -n '/MEMORY_STATS_START/,/MEMORY_STATS_END/p' | grep -v "MEMORY_STATS" | sed 's/^/    /'
+
+echo ""
+
+# Display disk usage
+echo "=== Disk Usage ==="
+echo "  Root: $DISK_USAGE"
+
+echo ""
+
+# Display active slots
+echo "=== Active Slots ==="
+SLOT_INFO=$(echo "$REMOTE_DATA" | sed -n '/SLOT_INFO_START/,/SLOT_INFO_END/p' | grep -v "SLOT_INFO" | grep -v "^$")
+if [ -z "$SLOT_INFO" ]; then
+  echo "  No slots found"
+else
+  echo "$SLOT_INFO" | while IFS='|' read -r slot containers; do
+    echo "  $slot: $containers containers"
+  done
+fi
+

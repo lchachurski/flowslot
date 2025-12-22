@@ -1,0 +1,85 @@
+#!/bin/bash
+# Close (stop) a slot
+# Usage: slot close <name>
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# Source common functions
+# shellcheck source=lib/common.sh
+source "$LIB_DIR/common.sh"
+
+show_help() {
+  cat << EOF
+Usage: slot close <name>
+
+Closes (stops) a development slot.
+
+Arguments:
+  name      Slot name to close
+
+Options:
+  -h, --help    Show this help message
+
+Examples:
+  slot close auth
+  slot close feature-branch
+EOF
+}
+
+# Handle help flag
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  show_help
+  exit 0
+fi
+
+if [ -z "${1:-}" ]; then
+  log_error "Slot name required"
+  echo ""
+  show_help
+  exit 1
+fi
+
+SLOT_NAME="$1"
+REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
+SYNC_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
+
+# Check if slot exists
+if ! ssh "$SLOT_REMOTE_HOST" "[ -d '$REMOTE_PATH' ]" 2>/dev/null; then
+  die "Slot '$SLOT_NAME' not found on remote"
+fi
+
+log_info "Closing slot '$SLOT_NAME'..."
+
+# Stop containers
+log_info "Stopping containers..."
+ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
+  set -e
+  cd '$REMOTE_PATH'
+  export COMPOSE_PROJECT_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
+  SLOT_COMPOSE_FILES="${SLOT_COMPOSE_FILES}"
+  
+  # Build compose command from configured files
+  COMPOSE_CMD="docker compose"
+  for f in \$SLOT_COMPOSE_FILES; do
+    COMPOSE_CMD="\$COMPOSE_CMD -f \$f"
+  done
+  
+  # Add slot override file if it exists
+  if [ -f 'docker-compose.slot.yml' ]; then
+    COMPOSE_CMD="\$COMPOSE_CMD -f docker-compose.slot.yml"
+  fi
+  
+  eval "\$COMPOSE_CMD down" 2>/dev/null || docker compose down 2>/dev/null || true
+REMOTE_SCRIPT
+
+# Pause Mutagen sync
+log_info "Pausing sync..."
+if mutagen sync list 2>/dev/null | grep -q "^$SYNC_NAME"; then
+  mutagen sync pause "$SYNC_NAME" 2>/dev/null || true
+fi
+
+success "Slot '$SLOT_NAME' closed"
+

@@ -1,0 +1,100 @@
+#!/bin/bash
+# Main entry point for flowslot CLI
+# Usage: slot <command> [args]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# Source common functions
+# shellcheck source=lib/common.sh
+source "$LIB_DIR/common.sh"
+
+show_help() {
+  cat << EOF
+Usage: slot <command> [args]
+
+Commands:
+  init              Initialize flowslot for this project
+  open <name>       Open/create a slot
+  close <name>      Close/stop a slot
+  list              List all slots
+  status            Show remote server resource usage
+  server start      Start EC2 instance
+  server stop       Stop EC2 instance
+  server status     Show EC2 instance status
+
+Options:
+  -h, --help        Show this help message
+
+For more information, run: slot <command> --help
+EOF
+}
+
+# Handle help flag
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  show_help
+  exit 0
+fi
+
+# Handle empty command
+if [ -z "${1:-}" ]; then
+  show_help
+  exit 1
+fi
+
+case "$1" in
+  init)
+    shift
+    "$SCRIPT_DIR/slot-init" "$@"
+    ;;
+  open)
+    shift
+    if ! CONFIG_FILE=$(find_config); then
+      die ".slotconfig not found. Run 'slot init' first."
+    fi
+    # shellcheck source=/dev/null
+    source "$CONFIG_FILE"
+    "$SCRIPT_DIR/slot-open" "$@"
+    ;;
+  close)
+    shift
+    if ! CONFIG_FILE=$(find_config); then
+      die ".slotconfig not found. Run 'slot init' first."
+    fi
+    # shellcheck source=/dev/null
+    source "$CONFIG_FILE"
+    "$SCRIPT_DIR/slot-close" "$@"
+    ;;
+  list)
+    shift
+    if ! CONFIG_FILE=$(find_config); then
+      die ".slotconfig not found. Run 'slot init' first."
+    fi
+    # shellcheck source=/dev/null
+    source "$CONFIG_FILE"
+    "$SCRIPT_DIR/slot-list" "$@"
+    ;;
+  status)
+    shift
+    if ! CONFIG_FILE=$(find_config); then
+      die ".slotconfig not found. Run 'slot init' first."
+    fi
+    # shellcheck source=/dev/null
+    source "$CONFIG_FILE"
+    "$SCRIPT_DIR/slot-status" "$@"
+    ;;
+  server)
+    shift
+    load_config || true  # Server commands work without project config
+    "$SCRIPT_DIR/slot-server" "$@"
+    ;;
+  *)
+    log_error "Unknown command: $1"
+    echo ""
+    show_help
+    exit 1
+    ;;
+esac
+
