@@ -170,8 +170,8 @@ When you run `slot init` in your project, flowslot creates a sibling directory f
 ├── myapp/                      # Your original project
 │   ├── .slotconfig             # Flowslot configuration
 │   ├── docker-compose.yml      # Your Docker setup
-│   ├── docker-compose.slot.yml # Port overrides for slots
-│   └── slot-ports.sh           # Port variable definitions
+│   ├── docker-compose.flowslot.yml # Port overrides for slots
+│   └── flowslot-ports.sh           # Port variable definitions
 │
 └── myapp-slots/                # Slot worktrees (created by flowslot)
     ├── repo.git/               # Bare clone of your repo
@@ -205,14 +205,14 @@ On the remote server, the same structure exists at `/srv/myapp/`, with each slot
 
 Add two files to your project:
 
-**`slot-ports.sh`** — Define your service ports:
+**`flowslot-ports.sh`** — Define your service ports:
 ```bash
 export SLOT_PORT_WEB=$((SLOT_PORT_BASE + 1))
 export SLOT_PORT_API=$((SLOT_PORT_BASE + 3))
 export SLOT_PORT_DB=$((SLOT_PORT_BASE + 4))
 ```
 
-**`docker-compose.slot.yml`** — Override ports for slots:
+**`docker-compose.flowslot.yml`** — Override ports for slots:
 ```yaml
 services:
   web:

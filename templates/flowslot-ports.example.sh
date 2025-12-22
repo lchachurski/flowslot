@@ -1,6 +1,6 @@
 #!/bin/bash
-# slot-ports.sh - Project-specific port definitions for flowslot
-# Place this file in your project root alongside docker-compose.slot.yml
+# flowslot-ports.sh - Project-specific port definitions for flowslot
+# Place this file in your project root alongside docker-compose.flowslot.yml
 #
 # Available variables from flowslot:
 #   SLOT            - Slot number (1, 2, 3, ...)

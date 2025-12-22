@@ -1,10 +1,10 @@
-# docker-compose.slot.yml
+# docker-compose.flowslot.yml
 # Override file for dynamic port allocation per slot
 #
 # Usage: 
 #   1. Place this file in your project root alongside your compose files
-#   2. Create slot-ports.sh to define your project's port variables
-#   3. Use ${SLOT_PORT_*} variables defined in slot-ports.sh
+#   2. Create flowslot-ports.sh to define your project's port variables
+#   3. Use ${SLOT_PORT_*} variables defined in flowslot-ports.sh
 #
 # See: templates/slot-ports.example.sh
 
@@ -46,7 +46,7 @@ volumes:
 #   SLOT_REMOTE_IP    - Tailscale IP of remote server
 #   COMPOSE_PROJECT_NAME - Unique project name (project-slotname)
 #
-# Project-specific variables defined in slot-ports.sh:
+# Project-specific variables defined in flowslot-ports.sh:
 #   SLOT_PORT_WEB     - Calculated from SLOT_PORT_BASE + offset
 #   SLOT_PORT_API     - Calculated from SLOT_PORT_BASE + offset
 #   SLOT_PORT_DB      - Calculated from SLOT_PORT_BASE + offset

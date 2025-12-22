@@ -166,8 +166,8 @@ ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
   SLOT_COMPOSE_FILES="${SLOT_COMPOSE_FILES}"
   
   # Source project-specific port definitions if they exist
-  if [ -f 'slot-ports.sh' ]; then
-    source slot-ports.sh
+  if [ -f 'flowslot-ports.sh' ]; then
+    source flowslot-ports.sh
   fi
   
   # Build compose command from configured files
@@ -176,9 +176,9 @@ ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
     COMPOSE_CMD="\$COMPOSE_CMD -f \$f"
   done
   
-  # Add slot override file if it exists
-  if [ -f 'docker-compose.slot.yml' ]; then
-    COMPOSE_CMD="\$COMPOSE_CMD -f docker-compose.slot.yml"
+  # Add flowslot override file if it exists
+  if [ -f 'docker-compose.flowslot.yml' ]; then
+    COMPOSE_CMD="\$COMPOSE_CMD -f docker-compose.flowslot.yml"
   fi
   
   eval "\$COMPOSE_CMD up -d"

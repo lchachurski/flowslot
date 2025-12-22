@@ -138,20 +138,20 @@ echo "Docker Compose files to use (space-separated):"
 read -r -p "Enter files [$DETECTED_COMPOSE_FILES]: " COMPOSE_FILES_INPUT
 COMPOSE_FILES="${COMPOSE_FILES_INPUT:-$DETECTED_COMPOSE_FILES}"
 
-# Check for docker-compose.slot.yml
-if [ ! -f "$SOURCE_DIR/docker-compose.slot.yml" ]; then
+# Check for docker-compose.flowslot.yml
+if [ ! -f "$SOURCE_DIR/docker-compose.flowslot.yml" ]; then
   echo ""
-  log_warn "docker-compose.slot.yml not found in source directory."
+  log_warn "docker-compose.flowslot.yml not found in source directory."
   echo "You'll need to create it to enable port overrides for slots."
-  echo "See: $SCRIPT_DIR/../templates/docker-compose.slot.example.yml"
+  echo "See: $SCRIPT_DIR/../templates/docker-compose.flowslot.example.yml"
 fi
 
-# Check for slot-ports.sh
-if [ ! -f "$SOURCE_DIR/slot-ports.sh" ]; then
+# Check for flowslot-ports.sh
+if [ ! -f "$SOURCE_DIR/flowslot-ports.sh" ]; then
   echo ""
-  log_warn "slot-ports.sh not found in source directory."
+  log_warn "flowslot-ports.sh not found in source directory."
   echo "You'll need to create it to define port variables."
-  echo "See: $SCRIPT_DIR/../templates/slot-ports.example.sh"
+  echo "See: $SCRIPT_DIR/../templates/flowslot-ports.example.sh"
 fi
 
 # Create .slotconfig
@@ -175,8 +175,8 @@ echo ""
 success "Initialized flowslot for $PROJECT_NAME"
 echo ""
 echo "Next steps:"
-echo "  1. Create slot-ports.sh with your port definitions"
-echo "  2. Create docker-compose.slot.yml with port overrides"
+echo "  1. Create flowslot-ports.sh with your port definitions"
+echo "  2. Create docker-compose.flowslot.yml with port overrides"
 echo "  3. Run 'slot server start' to start the EC2 instance"
 echo "  4. Run 'slot open <name> [branch]' to create your first slot"
 
