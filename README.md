@@ -16,6 +16,7 @@ Vibe coding with AI agents hits real limits fast:
 | **File collisions between sessions** | Two Cursor agents editing the same files = chaos |
 | **Testing is a nightmare** | Constantly stopping/starting containers, switching branches |
 | **Hardware gets expensive** | Buying a beefier machine just for parallel dev work |
+| **Tied to one machine** | Can't continue work from another device or location |
 
 Flowslot solves this with **slots** — isolated environments on a remote server, synced in real-time with your local code.
 
