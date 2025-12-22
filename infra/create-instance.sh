@@ -14,22 +14,50 @@ if [ -f "$LIB_DIR/common.sh" ]; then
 else
   # Fallback if common.sh not found
   log_info() { echo "[INFO] $*"; }
+  log_warn() { echo "[WARN] $*" >&2; }
   log_error() { echo "[ERROR] $*" >&2; }
   die() { log_error "$*"; exit 1; }
+  success() { echo "✓ $*"; }
   require_cmd() { command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"; }
+fi
+
+# --- Constants ---
+readonly REGION="${AWS_REGION:-eu-central-1}"
+readonly INSTANCE_TYPE="t3.2xlarge"
+readonly AMI_ID="ami-0c7217cdde317cfec"  # Ubuntu 22.04 LTS (update for your region)
+readonly SECURITY_GROUP_NAME="flowslot-dev"
+readonly VOLUME_SIZE_GB=100
+readonly KEY_NAME="${AWS_KEY_NAME:-}"  # Set your key name or leave empty
+
+show_help() {
+  cat << 'EOF'
+Usage: ./create-instance.sh
+
+Creates an AWS EC2 Spot instance for flowslot development.
+
+Prerequisites:
+  - AWS CLI configured
+  - Run 'aws sso login' first
+
+Environment variables:
+  AWS_REGION     Region to create instance in (default: eu-central-1)
+  AWS_KEY_NAME   SSH key pair name (optional)
+
+Options:
+  -h, --help     Show this help message
+EOF
+}
+
+# Parse arguments
+if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
+  show_help
+  exit 0
 fi
 
 require_cmd aws
 require_cmd jq
 
-REGION="${AWS_REGION:-eu-central-1}"
-INSTANCE_TYPE="t3.2xlarge"
-AMI_ID="ami-0c7217cdde317cfec"  # Ubuntu 22.04 LTS (update for your region)
-SECURITY_GROUP_NAME="flowslot-dev"
-KEY_NAME="${AWS_KEY_NAME:-}"  # Set your key name or leave empty to use default
-
 log_info "Creating EC2 Spot instance in $REGION..."
-echo ""
 
 # Check AWS authentication
 if ! aws sts get-caller-identity >/dev/null 2>&1; then
@@ -60,38 +88,42 @@ if [ -z "$SG_ID" ] || [ "$SG_ID" = "None" ]; then
     --cidr 0.0.0.0/0 \
     --region "$REGION" >/dev/null
   
-  echo "  Created: $SG_ID"
+  log_info "  Created: $SG_ID"
 else
   log_info "Security group exists: $SG_ID"
 fi
 
-# Launch Spot instance
-echo ""
+# Build launch specification using jq for proper JSON
 log_info "Launching Spot instance ($INSTANCE_TYPE)..."
 
-LAUNCH_SPEC="{
-  \"ImageId\": \"$AMI_ID\",
-  \"InstanceType\": \"$INSTANCE_TYPE\",
-  \"SecurityGroupIds\": [\"$SG_ID\"],
-  \"BlockDeviceMappings\": [{
-    \"DeviceName\": \"/dev/sda1\",
-    \"Ebs\": {
-      \"VolumeSize\": 100,
-      \"VolumeType\": \"gp3\",
-      \"DeleteOnTermination\": true
-    }
-  }],
-  \"TagSpecifications\": [{
-    \"ResourceType\": \"instance\",
-    \"Tags\": [
-      {\"Key\": \"Name\", \"Value\": \"flowslot-dev\"},
-      {\"Key\": \"Project\", \"Value\": \"flowslot\"}
-    ]
-  }]
-}"
+LAUNCH_SPEC=$(jq -n \
+  --arg ami "$AMI_ID" \
+  --arg instance_type "$INSTANCE_TYPE" \
+  --arg sg_id "$SG_ID" \
+  --argjson volume_size "$VOLUME_SIZE_GB" \
+  '{
+    ImageId: $ami,
+    InstanceType: $instance_type,
+    SecurityGroupIds: [$sg_id],
+    BlockDeviceMappings: [{
+      DeviceName: "/dev/sda1",
+      Ebs: {
+        VolumeSize: $volume_size,
+        VolumeType: "gp3",
+        DeleteOnTermination: true
+      }
+    }],
+    TagSpecifications: [{
+      ResourceType: "instance",
+      Tags: [
+        {Key: "Name", Value: "flowslot-dev"},
+        {Key: "Project", Value: "flowslot"}
+      ]
+    }]
+  }')
 
 if [ -n "$KEY_NAME" ]; then
-  LAUNCH_SPEC=$(echo "$LAUNCH_SPEC" | jq ". + {\"KeyName\": \"$KEY_NAME\"}")
+  LAUNCH_SPEC=$(echo "$LAUNCH_SPEC" | jq --arg key "$KEY_NAME" '. + {KeyName: $key}')
 fi
 
 INSTANCE_ID=$(aws ec2 run-instances \
@@ -101,8 +133,7 @@ INSTANCE_ID=$(aws ec2 run-instances \
   --query 'Instances[0].InstanceId' \
   --output text)
 
-echo "  Instance ID: $INSTANCE_ID"
-echo ""
+log_info "  Instance ID: $INSTANCE_ID"
 log_info "Waiting for instance to be running..."
 
 aws ec2 wait instance-running \
@@ -116,18 +147,15 @@ PUBLIC_IP=$(aws ec2 describe-instances \
   --query 'Reservations[0].Instances[0].PublicIpAddress' \
   --output text)
 
-echo ""
 success "Instance created successfully!"
-echo ""
-echo "Instance ID: $INSTANCE_ID"
-echo "Public IP: $PUBLIC_IP"
-echo "Region: $REGION"
-echo ""
-echo "Next steps:"
-echo "  1. Run: ./setup-remote.sh $PUBLIC_IP"
-echo "  2. After Tailscale is configured, lock down security group:"
-echo "     aws ec2 revoke-security-group-ingress \\"
-echo "       --group-name $SECURITY_GROUP_NAME \\"
-echo "       --protocol tcp --port 22 --cidr 0.0.0.0/0 \\"
-echo "       --region $REGION"
-
+log_info "Instance ID: $INSTANCE_ID"
+log_info "Public IP: $PUBLIC_IP"
+log_info "Region: $REGION"
+log_info ""
+log_info "Next steps:"
+log_info "  1. Run: ./setup-remote.sh $PUBLIC_IP"
+log_info "  2. After Tailscale is configured, lock down security group:"
+log_info "     aws ec2 revoke-security-group-ingress \\"
+log_info "       --group-name $SECURITY_GROUP_NAME \\"
+log_info "       --protocol tcp --port 22 --cidr 0.0.0.0/0 \\"
+log_info "       --region $REGION"
