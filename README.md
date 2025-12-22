@@ -18,19 +18,21 @@ When you're vibe coding with AI, you often want to:
 Flowslot solves this by giving you **slots** — isolated development environments that run on a remote server, synced in real-time with your local code.
 
 ```
-Your Mac (fast, cool, quiet)          Remote Server (does the heavy lifting)
-┌─────────────────────────────┐       ┌────────────────────────────────────────┐
-│                             │       │                                        │
-│  Cursor Window 1            │       │  Slot: auth (branch: fix/auth-bug)     │
-│  └── ~/slots/auth/          │ ───── │  └── Docker containers on ports 7101+  │
-│                             │  sync │                                        │
-│  Cursor Window 2            │       │  Slot: feature (branch: feat/new-ui)   │
-│  └── ~/slots/feature/       │ ───── │  └── Docker containers on ports 7201+  │
-│                             │  sync │                                        │
-│  Cursor Window 3            │       │  Slot: experiment (branch: main)       │
-│  └── ~/slots/experiment/    │ ───── │  └── Docker containers on ports 7301+  │
-│                             │       │                                        │
-└─────────────────────────────┘       └────────────────────────────────────────┘
+Your Mac (fast, cool, quiet)             Remote Server (does the heavy lifting)
+┌──────────────────────────────────┐     ┌──────────────────────────────────────────┐
+│                                  │     │                                          │
+│  Cursor Window 1                 │     │  Slot: auth (branch: fix/auth-bug)       │
+│  └── ~/myapp-slots/auth/         │ ──► │  └── Docker containers on ports 7100+    │
+│                                  │sync │      web:7101  api:7103  db:7104         │
+│  Cursor Window 2                 │     │                                          │
+│  └── ~/myapp-slots/feature/      │ ──► │  Slot: feature (branch: feat/new-ui)     │
+│                                  │sync │  └── Docker containers on ports 7200+    │
+│  Cursor Window 3                 │     │      web:7201  api:7203  db:7204         │
+│  └── ~/myapp-slots/experiment/   │ ──► │                                          │
+│                                  │sync │  Slot: experiment (branch: main)         │
+│                                  │     │  └── Docker containers on ports 7300+    │
+│                                  │     │      web:7301  api:7303  db:7304         │
+└──────────────────────────────────┘     └──────────────────────────────────────────┘
 ```
 
 **Each Cursor window has its own isolated AI context.** The AI only sees the code for that slot's branch — no confusion, no cross-contamination.
@@ -39,26 +41,74 @@ Your Mac (fast, cool, quiet)          Remote Server (does the heavy lifting)
 
 ## The Vibe Coding Workflow
 
+### Morning Setup
+
 ```bash
-# Morning: Start your remote server
+# Start your remote server
 slot server start
 
-# Open a slot for the auth bug you're fixing
+# Open slots for what you're working on today
 slot open auth fix/auth-bug
-
-# Open another slot to experiment with a new feature
 slot open feature feat/new-ui
+slot open experiment main
+```
 
-# Open each slot's directory in separate Cursor windows
-# Each window = clean AI context = better suggestions
+### Your Desktop Layout
 
-# End of day: Close slots and stop server
+Open each slot in a separate Cursor window, with its browser beside it:
+
+```
+┌─────────────────────────────────┬─────────────────────────────────┐
+│                                 │                                 │
+│  Cursor: ~/myapp-slots/auth/    │  Browser: http://100.x.y.z:7101 │
+│  (branch: fix/auth-bug)         │  (auth slot's web app)          │
+│                                 │                                 │
+├─────────────────────────────────┼─────────────────────────────────┤
+│                                 │                                 │
+│  Cursor: ~/myapp-slots/feature/ │  Browser: http://100.x.y.z:7201 │
+│  (branch: feat/new-ui)          │  (feature slot's web app)       │
+│                                 │                                 │
+└─────────────────────────────────┴─────────────────────────────────┘
+```
+
+**Each Cursor window sees only its slot's code.** The AI's context is clean — it won't confuse your auth fix with your UI experiment.
+
+### Testing in Parallel
+
+Every slot runs its own complete stack. Compare implementations side-by-side:
+
+```bash
+# Check what's running
+slot list
+
+# Output:
+# NAME        BRANCH         PORTS       STATUS
+# ----------------------------------------------------------------
+# auth        fix/auth-bug   7100-7199   running
+# feature     feat/new-ui    7200-7299   running
+# experiment  main           7300-7399   running
+```
+
+Access each slot's services via Tailscale IP:
+
+| Slot | Web App | API | Database |
+|------|---------|-----|----------|
+| auth | `http://100.x.y.z:7101` | `http://100.x.y.z:7103` | `100.x.y.z:7104` |
+| feature | `http://100.x.y.z:7201` | `http://100.x.y.z:7203` | `100.x.y.z:7204` |
+| experiment | `http://100.x.y.z:7301` | `http://100.x.y.z:7303` | `100.x.y.z:7304` |
+
+**Real example:** You're testing a new login flow. Open the auth slot's app in one browser, the main branch in another. Click through both. See the difference instantly.
+
+### End of Day
+
+```bash
 slot close auth
 slot close feature
+slot close experiment
 slot server stop
 ```
 
-**Your laptop stays cool.** All the Docker containers, database instances, and builds run on the remote server. Your local machine just runs Cursor and syncs files.
+**Your laptop stays cool all day.** Docker containers, database instances, and builds run on the remote server. Your Mac just runs Cursor and syncs files.
 
 ---
 
@@ -111,11 +161,43 @@ slot open my-feature main
 
 ## How It Works
 
-1. **Git Worktrees** — Each slot is a separate checkout of your repo on a specific branch
-2. **Mutagen Sync** — Real-time bidirectional file sync (sub-second latency)
-3. **Dynamic Ports** — Slot 1 gets ports 7100-7199, Slot 2 gets 7200-7299, etc.
-4. **Tailscale** — Private network access to your server without exposing public ports
-5. **Docker Compose** — Your existing setup, just with port overrides per slot
+### Directory Structure
+
+When you run `slot init` in your project, flowslot creates a sibling directory for slots:
+
+```
+~/development/
+├── myapp/                      # Your original project
+│   ├── .slotconfig             # Flowslot configuration
+│   ├── docker-compose.yml      # Your Docker setup
+│   ├── docker-compose.slot.yml # Port overrides for slots
+│   └── slot-ports.sh           # Port variable definitions
+│
+└── myapp-slots/                # Slot worktrees (created by flowslot)
+    ├── repo.git/               # Bare clone of your repo
+    ├── .env-templates/         # Copied .env files
+    │
+    ├── auth/                   # Slot: auth (branch: fix/auth-bug)
+    │   └── (full checkout)     #   → Open this in Cursor Window 1
+    │
+    ├── feature/                # Slot: feature (branch: feat/new-ui)
+    │   └── (full checkout)     #   → Open this in Cursor Window 2
+    │
+    └── experiment/             # Slot: experiment (branch: main)
+        └── (full checkout)     #   → Open this in Cursor Window 3
+```
+
+On the remote server, the same structure exists at `/srv/myapp/`, with each slot running its own Docker containers.
+
+### The Stack
+
+| Layer | What | Why |
+|-------|------|-----|
+| **Git Worktrees** | Each slot is a separate checkout on its own branch | Edit different branches simultaneously |
+| **Mutagen Sync** | Real-time bidirectional file sync (~100ms latency) | Save locally, see changes on remote instantly |
+| **Dynamic Ports** | Slot 1: 7100-7199, Slot 2: 7200-7299, etc. | Run multiple stacks without port conflicts |
+| **Tailscale** | Private mesh network (100.x.y.z addresses) | Access remote services securely, no public ports |
+| **Docker Compose** | Your existing setup with port overrides | Same containers, just isolated per slot |
 
 ---
 
