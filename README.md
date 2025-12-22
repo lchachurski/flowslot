@@ -8,14 +8,16 @@ Run multiple parallel AI-assisted development streams — each with isolated con
 
 ## Why Flowslot?
 
-When you're vibe coding with AI, you often want to:
+Vibe coding with AI agents hits real limits fast:
 
-- **Explore multiple directions at once** — try different approaches on different branches
-- **Keep AI context clean** — each Cursor window sees only its own branch
-- **Switch between features instantly** — without waiting for containers to rebuild
-- **Test implementations side-by-side** — compare branches in parallel
+| Problem | What happens |
+|---------|--------------|
+| **Can't run multiple environments locally** | Your machine can't handle 2-4 full Docker stacks at once |
+| **File collisions between sessions** | Two Cursor agents editing the same files = chaos |
+| **Testing is a nightmare** | Constantly stopping/starting containers, switching branches |
+| **Hardware gets expensive** | Buying a beefier machine just for parallel dev work |
 
-Flowslot solves this by giving you **slots** — isolated development environments that run on a remote server, synced in real-time with your local code.
+Flowslot solves this with **slots** — isolated environments on a remote server, synced in real-time with your local code.
 
 ```
 Local (Cursor + code)                    Remote Server (containers + builds)
