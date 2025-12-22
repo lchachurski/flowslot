@@ -2,7 +2,7 @@
 
 **The practical infrastructure for vibe coding with Cursor and Claude Code.**
 
-Run multiple parallel AI-assisted development streams on a remote server — each with isolated context, its own Git branch, and zero resource conflicts on your local machine.
+Run multiple parallel AI-assisted development streams — each with isolated context and its own Git branch.
 
 ---
 
@@ -11,14 +11,14 @@ Run multiple parallel AI-assisted development streams on a remote server — eac
 When you're vibe coding with AI, you often want to:
 
 - **Explore multiple directions at once** — try different approaches on different branches
-- **Keep AI context clean** — each Cursor window should only see its own branch
-- **Not burn your laptop** — Docker containers and builds eat RAM and CPU
+- **Keep AI context clean** — each Cursor window sees only its own branch
 - **Switch between features instantly** — without waiting for containers to rebuild
+- **Test implementations side-by-side** — compare branches in parallel
 
 Flowslot solves this by giving you **slots** — isolated development environments that run on a remote server, synced in real-time with your local code.
 
 ```
-Your Mac (fast, cool, quiet)             Remote Server (does the heavy lifting)
+Local (Cursor + code)                    Remote Server (containers + builds)
 ┌──────────────────────────────────┐     ┌──────────────────────────────────────────┐
 │                                  │     │                                          │
 │  Cursor Window 1                 │     │  Slot: auth (branch: fix/auth-bug)       │
@@ -108,7 +108,7 @@ slot close experiment
 slot server stop
 ```
 
-**Your laptop stays cool all day.** Docker containers, database instances, and builds run on the remote server. Your Mac just runs Cursor and syncs files.
+**Done.** Each slot is isolated — changes in one don't affect the others.
 
 ---
 
@@ -232,8 +232,6 @@ See [templates/](templates/) for complete examples.
 - **EC2 Spot Instance:** ~$0.10/hour (t3.2xlarge in eu-central-1)
 - **Auto-stop:** Server stops after 1 hour of inactivity
 - **Typical daily cost:** $0.80-1.20 for an 8-hour workday
-
-Your laptop's fans will thank you.
 
 ---
 
