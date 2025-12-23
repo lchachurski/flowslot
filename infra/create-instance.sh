@@ -23,8 +23,8 @@ fi
 
 # --- Constants ---
 readonly REGION="${AWS_REGION:-eu-central-1}"
-readonly INSTANCE_TYPE="t3.2xlarge"
-readonly AMI_ID="ami-0c7217cdde317cfec"  # Ubuntu 22.04 LTS (update for your region)
+readonly INSTANCE_TYPE="t4g.2xlarge"  # ARM64, cheaper than t3
+readonly AMI_ID="ami-01099d45fb386e13b"  # Ubuntu 22.04 LTS arm64 (eu-central-1)
 readonly SECURITY_GROUP_NAME="flowslot-dev"
 readonly VOLUME_SIZE_GB=100
 readonly KEY_NAME="${AWS_KEY_NAME:-}"  # Set your key name or leave empty
@@ -128,7 +128,7 @@ fi
 
 INSTANCE_ID=$(aws ec2 run-instances \
   --cli-input-json "$LAUNCH_SPEC" \
-  --instance-market-options '{"MarketType":"spot","SpotOptions":{"SpotInstanceType":"one-time","InstanceInterruptionBehavior":"stop"}}' \
+  --instance-market-options '{"MarketType":"spot","SpotOptions":{"SpotInstanceType":"persistent","InstanceInterruptionBehavior":"stop"}}' \
   --region "$REGION" \
   --query 'Instances[0].InstanceId' \
   --output text)
