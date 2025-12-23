@@ -57,68 +57,57 @@ if [ -d "$LOCAL_PATH" ]; then
   log_info "Slot '$SLOT_NAME' already exists locally. Resuming..."
 else
   log_info "Creating slot '$SLOT_NAME' on branch '$BRANCH'..."
+  
+  # Setup local worktree from the bare repo
+  log_info "Setting up local worktree..."
+  cd "$SLOT_SLOTS_DIR/repo.git"
+  
+  # Fetch if origin exists
+  if git remote get-url origin >/dev/null 2>&1; then
+    git fetch --all --prune 2>/dev/null || true
+  fi
+  
+  # Create worktree
+  git worktree add "$LOCAL_PATH" "$BRANCH" 2>/dev/null || \
+  git worktree add "$LOCAL_PATH" -b "$BRANCH" origin/"$BRANCH" 2>/dev/null || \
+  git worktree add "$LOCAL_PATH" HEAD
 fi
 
-# Setup remote worktree
-log_info "Setting up remote worktree..."
-ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
+# Create remote directory (Mutagen will sync files there)
+log_info "Setting up remote directory..."
+ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SETUP
   set -e
-  cd '$SLOT_REMOTE_BASE/repo.git'
-  git fetch --all --prune
-  
-  # Check if branch exists
-  if ! git rev-parse --verify "origin/$BRANCH" >/dev/null 2>&1; then
-    echo "Error: Branch '$BRANCH' not found in remote"
-    exit 1
+  # Ensure base directory exists with correct permissions
+  if [ ! -d '$SLOT_REMOTE_BASE' ]; then
+    sudo mkdir -p '$SLOT_REMOTE_BASE'
+    sudo chown \$USER:\$USER '$SLOT_REMOTE_BASE'
   fi
-  
-  # Create or checkout worktree
-  if [ -d '$REMOTE_PATH' ]; then
-    cd '$REMOTE_PATH'
-    git checkout '$BRANCH' || git checkout -b '$BRANCH' origin/'$BRANCH'
-    git pull origin '$BRANCH' || true
-  else
-    git worktree add '$REMOTE_PATH' '$BRANCH' || git worktree add '$REMOTE_PATH' -b '$BRANCH' origin/'$BRANCH'
-  fi
-REMOTE_SCRIPT
+  # Create slot directory
+  mkdir -p '$REMOTE_PATH'
+REMOTE_SETUP
 
-# Setup local worktree
-log_info "Setting up local worktree..."
-cd "$SLOT_SLOTS_DIR/repo.git"
-git fetch --all --prune
-
-if [ -d "$LOCAL_PATH" ]; then
-  cd "$LOCAL_PATH"
-  git checkout "$BRANCH" || git checkout -b "$BRANCH" origin/"$BRANCH"
-  git pull origin "$BRANCH" || true
-else
-  git worktree add "$LOCAL_PATH" "$BRANCH" || git worktree add "$LOCAL_PATH" -b "$BRANCH" origin/"$BRANCH"
-fi
-
-# Copy environment files from templates
+# Copy environment files from templates to local worktree
 log_info "Copying environment files..."
 if [ -d "$SLOT_TEMPLATE_DIR" ]; then
   find "$SLOT_TEMPLATE_DIR" -name ".env*" -type f | while read -r template_file; do
     rel_path="${template_file#$SLOT_TEMPLATE_DIR/}"
     local_env="$LOCAL_PATH/$rel_path"
-    remote_env="$REMOTE_PATH/$rel_path"
     
-    # Copy to local
+    # Copy to local (Mutagen will sync to remote)
     mkdir -p "$(dirname "$local_env")"
     cp "$template_file" "$local_env"
-    
-    # Copy to remote
-    ssh "$SLOT_REMOTE_HOST" "mkdir -p \"\$(dirname '$remote_env')\""
-    scp "$template_file" "$SLOT_REMOTE_HOST:$remote_env"
+    log_info "  Copied: $rel_path"
   done
 fi
 
-# Start Mutagen sync
+# Start Mutagen sync (local → remote)
 SYNC_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
 log_info "Starting Mutagen sync..."
-if mutagen sync list 2>/dev/null | grep -q "^$SYNC_NAME"; then
+if mutagen sync list 2>/dev/null | grep -q "Name: $SYNC_NAME"; then
+  log_info "  Resuming existing sync..."
   mutagen sync resume "$SYNC_NAME" 2>/dev/null || true
 else
+  log_info "  Creating new sync..."
   mutagen sync create \
     "$LOCAL_PATH" \
     "$SLOT_REMOTE_HOST:$REMOTE_PATH" \
@@ -135,22 +124,17 @@ else
     --default-directory-mode=0755
 fi
 
-# Wait for sync to be ready
-log_info "Waiting for sync to initialize..."
-sleep 2
-mutagen sync flush "$SYNC_NAME" || true
+# Wait for sync to complete initial transfer
+log_info "Waiting for sync..."
+mutagen sync flush "$SYNC_NAME" 2>/dev/null || sleep 3
 
-# Find next available slot number
-SLOT_NUM=1
-while ssh "$SLOT_REMOTE_HOST" "[ -d '$SLOT_REMOTE_BASE/slot-$SLOT_NUM' ]" 2>/dev/null; do
-  SLOT_NUM=$((SLOT_NUM + 1))
-done
-
-# Calculate port base using constants
+# Calculate port base
+# Count existing slots to assign unique port range
+SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" "ls -d '$SLOT_REMOTE_BASE'/*/ 2>/dev/null | wc -l" || echo 1)
 PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
 
-# Get Tailscale IP for webhook URLs
-TAILSCALE_IP=$(ssh "$SLOT_REMOTE_HOST" "tailscale ip -4" | head -1 || echo "")
+# Get Tailscale IP for accessing services
+TAILSCALE_IP=$(ssh "$SLOT_REMOTE_HOST" "tailscale ip -4 2>/dev/null" | head -1 || echo "")
 
 # Start containers with dynamic ports
 log_info "Starting containers..."
@@ -158,12 +142,11 @@ ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
   set -e
   cd '$REMOTE_PATH'
   
-  # Export generic slot variables
+  # Export slot variables
   export SLOT=$SLOT_NUM
   export SLOT_PORT_BASE=$PORT_BASE
   export SLOT_REMOTE_IP="${TAILSCALE_IP:-localhost}"
   export COMPOSE_PROJECT_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
-  SLOT_COMPOSE_FILES="${SLOT_COMPOSE_FILES}"
   
   # Source project-specific port definitions if they exist
   if [ -f 'flowslot-ports.sh' ]; then
@@ -171,9 +154,12 @@ ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
   fi
   
   # Build compose command from configured files
+  COMPOSE_FILES="${SLOT_COMPOSE_FILES}"
   COMPOSE_CMD="docker compose"
-  for f in \$SLOT_COMPOSE_FILES; do
-    COMPOSE_CMD="\$COMPOSE_CMD -f \$f"
+  for f in \$COMPOSE_FILES; do
+    if [ -f "\$f" ]; then
+      COMPOSE_CMD="\$COMPOSE_CMD -f \$f"
+    fi
   done
   
   # Add flowslot override file if it exists
@@ -181,15 +167,19 @@ ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
     COMPOSE_CMD="\$COMPOSE_CMD -f docker-compose.flowslot.yml"
   fi
   
+  echo "Running: \$COMPOSE_CMD up -d"
   eval "\$COMPOSE_CMD up -d"
 REMOTE_SCRIPT
 
 echo ""
 success "Slot '$SLOT_NAME' is ready!"
-echo "  Branch: $BRANCH"
-echo "  Port base: $PORT_BASE"
+echo ""
+echo "  Local:  $LOCAL_PATH"
 echo "  Remote: $SLOT_REMOTE_HOST:$REMOTE_PATH"
+echo "  Branch: $BRANCH"
+echo "  Ports:  $PORT_BASE - $((PORT_BASE + PORT_RANGE - 1))"
 if [ -n "${TAILSCALE_IP:-}" ]; then
-  echo "  Tailscale IP: $TAILSCALE_IP"
+  echo "  Access: http://$TAILSCALE_IP:$((PORT_BASE + 1))"
 fi
-
+echo ""
+echo "Open in Cursor: cursor $LOCAL_PATH"

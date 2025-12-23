@@ -87,6 +87,18 @@ mkdir -p "$SLOTS_DIR"
 TEMPLATE_DIR="$SLOTS_DIR/.env-templates"
 mkdir -p "$TEMPLATE_DIR"
 
+# Create remote base directory
+echo ""
+log_info "Setting up remote directory..."
+if ssh "$REMOTE_HOST" "sudo mkdir -p '$REMOTE_BASE' && sudo chown \$USER:\$USER '$REMOTE_BASE'" 2>/dev/null; then
+  log_info "  Created: $REMOTE_BASE"
+else
+  log_warn "Could not create remote directory. Make sure:"
+  log_warn "  1. Remote host is accessible: $REMOTE_HOST"
+  log_warn "  2. You can run 'slot server start' if EC2 is stopped"
+  log_warn "  Remote directory will be created on first 'slot open'"
+fi
+
 # Find and copy .env files from source
 echo ""
 log_info "Copying .env files to templates..."
