@@ -140,9 +140,29 @@ for i in {1..30}; do
   sleep 1
 done
 
-# Calculate port base
-# Count existing slots to assign unique port range
-SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" "ls -d '$SLOT_REMOTE_BASE'/*/ 2>/dev/null | wc -l" || echo 1)
+# Calculate port base using persistent slot number
+# Each slot stores its number in .slot_num file
+SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SLOT_NUM
+  set -euo pipefail
+  SLOT_NUM_FILE='$REMOTE_PATH/.slot_num'
+  
+  if [ -f "\$SLOT_NUM_FILE" ]; then
+    # Use existing slot number
+    cat "\$SLOT_NUM_FILE"
+  else
+    # Find next available slot number (1-based)
+    USED_NUMS=\$(find '$SLOT_REMOTE_BASE' -name '.slot_num' -exec cat {} \\; 2>/dev/null | sort -n)
+    NEXT_NUM=1
+    for n in \$USED_NUMS; do
+      if [ "\$n" -eq "\$NEXT_NUM" ]; then
+        NEXT_NUM=\$((NEXT_NUM + 1))
+      fi
+    done
+    echo "\$NEXT_NUM" > "\$SLOT_NUM_FILE"
+    echo "\$NEXT_NUM"
+  fi
+REMOTE_SLOT_NUM
+)
 PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
 
 # Get Tailscale IP for accessing services
@@ -174,9 +194,11 @@ ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
     fi
   done
   
-  # Add flowslot override file if it exists
+  # Add flowslot override file if it exists and not already included
   if [ -f 'docker-compose.flowslot.yml' ]; then
-    COMPOSE_CMD="\$COMPOSE_CMD -f docker-compose.flowslot.yml"
+    if ! echo "\$COMPOSE_CMD" | grep -q 'docker-compose.flowslot.yml'; then
+      COMPOSE_CMD="\$COMPOSE_CMD -f docker-compose.flowslot.yml"
+    fi
   fi
   
   echo "Running: \$COMPOSE_CMD up -d"
