@@ -95,7 +95,11 @@ case "$1" in
     ;;
   server)
     shift
-    load_config || true  # Server commands work without project config
+    if CONFIG_FILE=$(find_config 2>/dev/null); then
+      set -a
+      source "$CONFIG_FILE"
+      set +a
+    fi
     "$SCRIPT_DIR/slot-server" "$@"
     ;;
   *)

@@ -32,33 +32,25 @@ echo "Active slots for $SLOT_PROJECT_NAME:"
 echo ""
 
 # Batch all data collection in single SSH call
-SLOT_DATA=$(ssh "$SLOT_REMOTE_HOST" bash << 'REMOTE_SCRIPT'
+SLOT_DATA=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
   set -euo pipefail
-  BASE_DIR="${SLOT_REMOTE_BASE}"
+  BASE_DIR="$SLOT_REMOTE_BASE"
+  PROJECT="$SLOT_PROJECT_NAME"
   
-  # Get all slots
-  slots=$(ls -1 "$BASE_DIR" 2>/dev/null | grep -v '^repo.git$' || true)
-  
-  if [ -z "$slots" ]; then
-    echo "NO_SLOTS"
-    exit 0
-  fi
-  
-  # Collect data for each slot in single pass
-  for slot in $slots; do
-    slot_path="$BASE_DIR/$slot"
+  # Get all slot directories (must have docker-compose file)
+  for slot_path in "\$BASE_DIR"/*/; do
+    slot=\$(basename "\$slot_path")
     
-    # Get branch
-    branch=$(cd "$slot_path" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    # Skip if no compose file (not a real slot)
+    if [ ! -f "\$slot_path/docker-compose.yml" ] && [ ! -f "\$slot_path/docker-compose.dev.yml" ]; then
+      continue
+    fi
     
-    # Get container count (running)
-    containers=$(cd "$slot_path" && docker compose ps -q 2>/dev/null | wc -l || echo "0")
+    # Count running containers for this slot
+    containers=\$(docker ps --filter "name=\${PROJECT}-\${slot}" -q 2>/dev/null | wc -l || echo "0")
     
-    # Try to get slot number from environment or compose project name
-    slot_num=$(cd "$slot_path" && docker compose config 2>/dev/null | grep -oP 'SLOT=\K[0-9]+' | head -1 || echo "")
-    
-    # Output: slot|branch|containers|slot_num
-    echo "${slot}|${branch}|${containers}|${slot_num}"
+    # Output: slot|containers
+    echo "\${slot}|\${containers}"
   done
 REMOTE_SCRIPT
 )
@@ -68,26 +60,19 @@ if [ "$SLOT_DATA" = "NO_SLOTS" ]; then
   exit 0
 fi
 
-printf "%-15s %-20s %-15s %-10s\n" "NAME" "BRANCH" "PORTS" "STATUS"
-echo "----------------------------------------------------------------"
+printf "%-15s %-10s\n" "NAME" "STATUS"
+echo "----------------------------"
 
 # Process collected data
-while IFS='|' read -r slot branch containers slot_num; do
-  # Calculate ports if slot_num available
-  if [ -n "$slot_num" ] && [ "$slot_num" != "" ]; then
-    port_base=$((PORT_BASE_START + slot_num * PORT_RANGE))
-    ports="$port_base-$((port_base + PORT_RANGE - 1))"
-  else
-    ports="unknown"
-  fi
-  
+while IFS='|' read -r slot containers; do
   # Determine status
-  if [ "$containers" -gt 0 ]; then
-    status="running"
+  containers="${containers//[[:space:]]/}"  # Trim whitespace
+  if [ "$containers" -gt 0 ] 2>/dev/null; then
+    status="running ($containers)"
   else
     status="stopped"
   fi
   
-  printf "%-15s %-20s %-15s %-10s\n" "$slot" "$branch" "$ports" "$status"
+  printf "%-15s %-10s\n" "$slot" "$status"
 done <<< "$SLOT_DATA"
 

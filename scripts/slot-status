@@ -60,20 +60,6 @@ REMOTE_DATA=$(ssh "$SLOT_REMOTE_HOST" bash << 'REMOTE_SCRIPT'
   # Get disk usage
   disk_usage=$(df -h / | tail -1 | awk '{print $3 " / " $2 " (" $5 " used)"}')
   
-  # Get slot container counts
-  base_dir="${SLOT_REMOTE_BASE}"
-  slots=$(ls -1 "$base_dir" 2>/dev/null | grep -v '^repo.git$' || true)
-  slot_info=""
-  if [ -n "$slots" ]; then
-    for slot in $slots; do
-      slot_path="$base_dir/$slot"
-      containers=$(cd "$slot_path" && docker compose ps -q 2>/dev/null | wc -l || echo "0")
-      if [ "$containers" -gt 0 ]; then
-        slot_info="${slot_info}${slot}|${containers}\n"
-      fi
-    done
-  fi
-  
   # Output all data separated by markers
   echo "TAILSCALE_IP|${tailscale_ip}"
   echo "RUNNING_CONTAINERS|${running_containers}"
@@ -82,9 +68,6 @@ REMOTE_DATA=$(ssh "$SLOT_REMOTE_HOST" bash << 'REMOTE_SCRIPT'
   echo "MEMORY_STATS_START"
   echo "$memory_stats"
   echo "MEMORY_STATS_END"
-  echo "SLOT_INFO_START"
-  echo -e "$slot_info"
-  echo "SLOT_INFO_END"
 REMOTE_SCRIPT
 )
 
@@ -115,15 +98,5 @@ echo "=== Disk Usage ==="
 echo "  Root: $DISK_USAGE"
 
 echo ""
-
-# Display active slots
-echo "=== Active Slots ==="
-SLOT_INFO=$(echo "$REMOTE_DATA" | sed -n '/SLOT_INFO_START/,/SLOT_INFO_END/p' | grep -v "SLOT_INFO" | grep -v "^$")
-if [ -z "$SLOT_INFO" ]; then
-  echo "  No slots found"
-else
-  echo "$SLOT_INFO" | while IFS='|' read -r slot containers; do
-    echo "  $slot: $containers containers"
-  done
-fi
+echo "Run 'slot list' to see active slots."
 
