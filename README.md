@@ -190,13 +190,13 @@ When you run `slot init` in your project, flowslot creates a sibling directory f
         └── (full checkout)     #   → Open this in Cursor Window 3
 ```
 
-On the remote server, the same structure exists at `/srv/myapp/`, with each slot running its own Docker containers.
+On the remote server, each slot is a directory at `/srv/myapp/<slot-name>/` containing synced files and running Docker containers. No git on remote — files sync via Mutagen.
 
 ### The Stack
 
 | Layer | What | Why |
 |-------|------|-----|
-| **Git Worktrees** | Each slot is a separate checkout on its own branch | Edit different branches simultaneously |
+| **Git Worktrees** | Each slot is a local checkout on its own branch | Edit different branches simultaneously |
 | **Mutagen Sync** | Real-time bidirectional file sync (~100ms latency) | Save locally, see changes on remote instantly |
 | **Dynamic Ports** | Slot 1: 7100-7199, Slot 2: 7200-7299, etc. | Run multiple stacks without port conflicts |
 | **Tailscale** | Private mesh network (100.x.y.z addresses) | Access remote services securely, no public ports |
@@ -232,7 +232,7 @@ See [templates/](templates/) for complete examples.
 
 ## Cost
 
-- **EC2 Spot Instance:** ~$0.10/hour (t3.2xlarge in eu-central-1)
+- **EC2 Spot Instance:** ~$0.08/hour (t4g.2xlarge ARM in eu-central-1)
 - **Auto-stop:** Server stops after 1 hour of inactivity
 - **Typical daily cost:** $0.80-1.20 for an 8-hour workday
 
