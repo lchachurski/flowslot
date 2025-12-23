@@ -103,30 +103,42 @@ fi
 # Start Mutagen sync (local → remote)
 SYNC_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
 log_info "Starting Mutagen sync..."
-if mutagen sync list 2>/dev/null | grep -q "Name: $SYNC_NAME"; then
-  log_info "  Resuming existing sync..."
-  mutagen sync resume "$SYNC_NAME" 2>/dev/null || true
-else
-  log_info "  Creating new sync..."
-  mutagen sync create \
-    "$LOCAL_PATH" \
-    "$SLOT_REMOTE_HOST:$REMOTE_PATH" \
-    --name="$SYNC_NAME" \
-    --ignore=".git" \
-    --ignore="node_modules" \
-    --ignore=".next" \
-    --ignore="dist" \
-    --ignore="build" \
-    --ignore="*.log" \
-    --ignore=".DS_Store" \
-    --sync-mode=two-way-resolved \
-    --default-file-mode=0644 \
-    --default-directory-mode=0755
+
+# Check if sync already exists
+if mutagen sync list --label-selector="name=$SYNC_NAME" 2>/dev/null | grep -q "Name:"; then
+  log_info "  Terminating stale sync..."
+  mutagen sync terminate "$SYNC_NAME" 2>/dev/null || true
 fi
 
+# Clear remote directory for fresh sync
+log_info "  Preparing remote directory..."
+ssh "$SLOT_REMOTE_HOST" "rm -rf '$REMOTE_PATH' && mkdir -p '$REMOTE_PATH'"
+
+# Create fresh sync
+log_info "  Creating sync..."
+mutagen sync create \
+  "$LOCAL_PATH" \
+  "$SLOT_REMOTE_HOST:$REMOTE_PATH" \
+  --name="$SYNC_NAME" \
+  --label="name=$SYNC_NAME" \
+  --ignore=".git" \
+  --ignore="node_modules" \
+  --ignore=".next" \
+  --ignore="dist" \
+  --ignore="*.log" \
+  --ignore=".DS_Store" \
+  --sync-mode=two-way-resolved \
+  --default-file-mode=0644 \
+  --default-directory-mode=0755
+
 # Wait for sync to complete initial transfer
-log_info "Waiting for sync..."
-mutagen sync flush "$SYNC_NAME" 2>/dev/null || sleep 3
+log_info "Waiting for sync to complete..."
+for i in {1..30}; do
+  if mutagen sync flush "$SYNC_NAME" 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
 
 # Calculate port base
 # Count existing slots to assign unique port range

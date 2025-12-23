@@ -75,11 +75,9 @@ ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
   eval "\$COMPOSE_CMD down" 2>/dev/null || docker compose down 2>/dev/null || true
 REMOTE_SCRIPT
 
-# Pause Mutagen sync
-log_info "Pausing sync..."
-if mutagen sync list 2>/dev/null | grep -q "^$SYNC_NAME"; then
-  mutagen sync pause "$SYNC_NAME" 2>/dev/null || true
-fi
+# Terminate Mutagen sync
+log_info "Stopping sync..."
+mutagen sync terminate "$SYNC_NAME" 2>/dev/null || true
 
 success "Slot '$SLOT_NAME' closed"
 
