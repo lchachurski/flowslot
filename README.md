@@ -204,27 +204,117 @@ On the remote server, each slot is a directory at `/srv/myapp/<slot-name>/` cont
 
 ---
 
-## Project Setup
+## Adapting Your Project
 
-Add two files to your project:
+Flowslot needs your docker-compose to support **dynamic ports** so multiple slots can run simultaneously without conflicts. This requires two changes:
 
-**`flowslot-ports.sh`** — Define your service ports:
-```bash
-export SLOT_PORT_WEB=$((SLOT_PORT_BASE + 1))
-export SLOT_PORT_API=$((SLOT_PORT_BASE + 3))
-export SLOT_PORT_DB=$((SLOT_PORT_BASE + 4))
-```
+### Step 1: Parameterize Ports in docker-compose
 
-**`docker-compose.flowslot.yml`** — Override ports for slots:
+Change hardcoded ports to environment variables **with defaults** (so local dev still works):
+
 ```yaml
+# BEFORE (hardcoded)
 services:
   web:
     ports:
-      - "${SLOT_PORT_WEB}:3000"
+      - "3000:3000"
   api:
     ports:
-      - "${SLOT_PORT_API}:8080"
+      - "8080:8080"
+  postgres:
+    container_name: myapp-postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
 ```
+
+```yaml
+# AFTER (parameterized with defaults)
+services:
+  web:
+    ports:
+      - "${SLOT_PORT_WEB:-3000}:3000"
+  api:
+    ports:
+      - "${SLOT_PORT_API:-8080}:8080"
+  postgres:
+    container_name: ${POSTGRES_CONTAINER_NAME:-myapp-postgres}
+    ports:
+      - "${SLOT_PORT_DB:-5432}:5432"
+    volumes:
+      - ${POSTGRES_VOLUME:-postgres-data}:/var/lib/postgresql/data
+```
+
+**Key points:**
+- `${VAR:-default}` means: use `$VAR` if set, otherwise use `default`
+- Local dev works unchanged (uses defaults)
+- Flowslot sets these variables to unique values per slot
+- **Container names must be unique** — use `${POSTGRES_CONTAINER_NAME:-...}` pattern
+- **Volumes must be unique** — use `${POSTGRES_VOLUME:-...}` for stateful services
+
+### Step 2: Create flowslot-ports.sh
+
+This file defines your port variables relative to `SLOT_PORT_BASE` (provided by flowslot):
+
+```bash
+#!/bin/bash
+# flowslot-ports.sh
+
+# SLOT_PORT_BASE is set by flowslot: 7200, 7300, 7400, etc.
+# SLOT is the slot number: 1, 2, 3, etc.
+
+export SLOT_PORT_WEB=$((SLOT_PORT_BASE + 1))      # 7201, 7301, ...
+export SLOT_PORT_API=$((SLOT_PORT_BASE + 3))      # 7203, 7303, ...
+export SLOT_PORT_DB=$((SLOT_PORT_BASE + 4))       # 7204, 7304, ...
+
+# Unique container names and volumes per slot
+export POSTGRES_CONTAINER_NAME="myapp-postgres-${SLOT}"
+export POSTGRES_VOLUME="postgres-data-${SLOT}"
+```
+
+### Step 3: Create docker-compose.flowslot.yml (Optional)
+
+For environment-specific overrides that only apply in slots:
+
+```yaml
+version: '3.9'
+
+services:
+  web:
+    environment:
+      # Point to slot's API, not localhost
+      - NEXT_PUBLIC_API_URL=http://${SLOT_REMOTE_IP}:${SLOT_PORT_API}
+
+# Pre-define volumes for each slot number
+volumes:
+  postgres-data-1:
+  postgres-data-2:
+  postgres-data-3:
+  postgres-data-4:
+```
+
+### Variables Available in Slots
+
+Flowslot exports these before running docker compose:
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `SLOT` | `1` | Slot number (1, 2, 3, ...) |
+| `SLOT_PORT_BASE` | `7200` | Base port for this slot |
+| `SLOT_REMOTE_IP` | `100.112.147.63` | Tailscale IP of remote server |
+| `COMPOSE_PROJECT_NAME` | `myapp-auth` | Unique project name per slot |
+
+Your `flowslot-ports.sh` can define any additional variables you need.
+
+### Common Gotchas
+
+| Issue | Solution |
+|-------|----------|
+| Port already allocated | Check for hardcoded ports in your compose files |
+| Container name conflict | Parameterize all `container_name:` values |
+| Volume data collision | Parameterize volume names for stateful services |
+| Service can't find API | Use `SLOT_REMOTE_IP` instead of `localhost` in env vars |
 
 See [templates/](templates/) for complete examples.
 
