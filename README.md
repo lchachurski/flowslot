@@ -242,8 +242,8 @@ slot open my-feature main
 
 | Command | What it does |
 |---------|--------------|
-| `slot info <name>` | Show slot details (URLs, ports, containers, sync status) |
-| `slot compose <name> <args...>` | Proxy docker compose commands to remote slot |
+| `slot info [name]` | Show slot details (URLs, ports, containers, sync status). Auto-detects slot name if inside slot directory. |
+| `slot compose [name] <args...>` | Proxy docker compose commands to remote slot. Auto-detects slot name if inside slot directory. |
 
 ### Server & System
 
@@ -259,14 +259,33 @@ slot open my-feature main
 
 ## Working with Slots
 
-**All slot-specific commands require a slot name.** Use `slot list` to see available slots.
+### Auto-detection
+
+When working inside a slot directory, slot names are **auto-detected** from the current path:
+
+```bash
+cd ~/myapp-slots/spider-seo
+slot info              # Auto-detects "spider-seo"
+slot compose ps        # Auto-detects "spider-seo"
+slot compose logs web  # Auto-detects "spider-seo"
+```
+
+You can still specify the slot name explicitly to control a different slot:
+
+```bash
+cd ~/myapp-slots/spider-seo
+slot info auth-fix     # Explicitly uses "auth-fix" instead
+```
+
+**Note:** If you're not inside a slot directory, you must provide the slot name explicitly. Use `slot list` to see available slots.
 
 ### View Slot Information
 
 Get detailed information about a slot, including service URLs and container status:
 
 ```bash
-slot info spider-seo
+slot info spider-seo   # Explicit slot name
+slot info              # Auto-detected (if inside slot directory)
 ```
 
 Output shows:
@@ -281,31 +300,18 @@ Output shows:
 Use `slot compose` to run any docker compose command on the remote slot without manually SSHing:
 
 ```bash
-# View containers
+# From inside slot directory (auto-detected)
+cd ~/myapp-slots/spider-seo
+slot compose ps
+slot compose build --no-cache
+slot compose logs -f web
+slot compose exec thunder bash
+
+# From anywhere (explicit slot name)
 slot compose spider-seo ps
-
-# Rebuild containers
 slot compose spider-seo build --no-cache
-slot compose spider-seo up -d
-
-# View logs
 slot compose spider-seo logs -f web
-slot compose spider-seo logs -f api
-
-# Execute commands in containers
 slot compose spider-seo exec thunder bash
-slot compose spider-seo exec postgres psql -U thunder
-
-# Restart services
-slot compose spider-seo restart api
-slot compose spider-seo restart web
-
-# Run one-off commands
-slot compose spider-seo run --rm api npm run migrate
-slot compose spider-seo run --rm api npm test
-
-# Stop everything
-slot compose spider-seo down
 ```
 
 **Why this is useful:** When developing in a slot directory (e.g., `~/myapp-slots/spider-seo/`), you often need to rebuild containers, check logs, or run migrations. Instead of manually SSHing and navigating to the remote directory, `slot compose` handles it all — just like running `docker compose` locally, but on the remote slot.

@@ -81,6 +81,29 @@ validate_slot_name() {
   fi
 }
 
+# Detect slot name from current directory
+# Returns slot name if inside a slot directory, otherwise returns 1
+detect_slot_name() {
+  # Check if SLOT_SLOTS_DIR is set
+  [ -z "${SLOT_SLOTS_DIR:-}" ] && return 1
+  
+  # Get absolute path of current directory
+  local current_dir
+  current_dir="$(pwd -P)"
+  
+  local slots_dir
+  slots_dir="$(cd "$SLOT_SLOTS_DIR" 2>/dev/null && pwd -P)" || return 1
+  
+  # Check if we're inside slots directory
+  if [[ "$current_dir" == "$slots_dir"/* ]]; then
+    # Extract first path component after slots_dir
+    local relative="${current_dir#$slots_dir/}"
+    echo "${relative%%/*}"
+    return 0
+  fi
+  return 1
+}
+
 # Constants
 readonly PORT_BASE_START=7100
 readonly PORT_RANGE=100

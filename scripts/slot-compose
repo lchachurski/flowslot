@@ -13,12 +13,12 @@ source "$LIB_DIR/common.sh"
 
 show_help() {
   cat << EOF
-Usage: slot compose <name> <docker-compose-args...>
+Usage: slot compose [name] <docker-compose-args...>
 
 Proxy docker compose commands to a remote slot.
 
 Arguments:
-  name                    Slot name
+  name                    Slot name (optional if inside a slot directory)
   docker-compose-args     Any docker compose command and arguments
 
 Options:
@@ -26,12 +26,9 @@ Options:
 
 Examples:
   slot compose spider-seo ps
-  slot compose spider-seo build --no-cache
-  slot compose spider-seo up -d
-  slot compose spider-seo logs -f web
-  slot compose spider-seo exec thunder bash
-  slot compose spider-seo restart api
-  slot compose spider-seo run --rm api npm run migrate
+  slot compose ps                    # Auto-detects slot name from current directory
+  slot compose build --no-cache      # Auto-detects slot name
+  slot compose logs -f web           # Auto-detects slot name
 EOF
 }
 
@@ -42,23 +39,49 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 fi
 
 if [ -z "${1:-}" ]; then
-  log_error "Slot name required"
-  echo ""
-  show_help
-  exit 1
-fi
-
-SLOT_NAME="$1"
-shift  # Remove slot name from arguments
-
-validate_slot_name "$SLOT_NAME"
-
-if [ $# -eq 0 ]; then
   log_error "Docker compose command required"
   echo ""
   show_help
   exit 1
 fi
+
+# List of known docker compose subcommands
+COMPOSE_COMMANDS="ps up down build logs exec run restart stop start pull config push pause unpause top kill rm"
+
+# Check if first argument is a compose command or slot name
+FIRST_ARG="$1"
+IS_COMPOSE_CMD=false
+
+for cmd in $COMPOSE_COMMANDS; do
+  if [ "$FIRST_ARG" = "$cmd" ]; then
+    IS_COMPOSE_CMD=true
+    break
+  fi
+done
+
+# If first arg is a compose command, try to auto-detect slot name
+if [ "$IS_COMPOSE_CMD" = true ]; then
+  if ! SLOT_NAME=$(detect_slot_name 2>/dev/null); then
+    log_error "Slot name required (not inside a slot directory)"
+    echo ""
+    show_help
+    exit 1
+  fi
+  # Don't shift - first arg is the compose command
+else
+  # First arg is slot name
+  SLOT_NAME="$FIRST_ARG"
+  shift  # Remove slot name from arguments
+  
+  if [ $# -eq 0 ]; then
+    log_error "Docker compose command required"
+    echo ""
+    show_help
+    exit 1
+  fi
+fi
+
+validate_slot_name "$SLOT_NAME"
 
 REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
 

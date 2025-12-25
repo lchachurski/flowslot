@@ -13,18 +13,19 @@ source "$LIB_DIR/common.sh"
 
 show_help() {
   cat << EOF
-Usage: slot info <name>
+Usage: slot info [name]
 
 Show detailed information about a slot.
 
 Arguments:
-  name      Slot name
+  name      Slot name (optional if inside a slot directory)
 
 Options:
   -h, --help    Show this help message
 
 Examples:
   slot info spider-seo
+  slot info                    # Auto-detects slot name from current directory
 EOF
 }
 
@@ -34,14 +35,18 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   exit 0
 fi
 
+# Auto-detect slot name if not provided
 if [ -z "${1:-}" ]; then
-  log_error "Slot name required"
-  echo ""
-  show_help
-  exit 1
+  if ! SLOT_NAME=$(detect_slot_name 2>/dev/null); then
+    log_error "Slot name required (not inside a slot directory)"
+    echo ""
+    show_help
+    exit 1
+  fi
+else
+  SLOT_NAME="$1"
 fi
 
-SLOT_NAME="$1"
 validate_slot_name "$SLOT_NAME"
 
 LOCAL_PATH="$SLOT_SLOTS_DIR/$SLOT_NAME"
