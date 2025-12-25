@@ -134,9 +134,9 @@ brew install awscli
 ### 2. Install Flowslot
 
 ```bash
-git clone https://github.com/lchachurski/flowslot.git ~/.flowslot
-echo 'export PATH="$PATH:$HOME/.flowslot/scripts"' >> ~/.zshrc
-source ~/.zshrc
+git clone https://github.com/lchachurski/flowslot.git ~/.flowslot && \
+  echo 'export PATH="$PATH:$HOME/.flowslot/scripts"' >> ~/.zshrc && \
+  source ~/.zshrc
 ```
 
 ### 3. Server Setup (One-time)
