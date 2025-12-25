@@ -46,6 +46,22 @@ while [[ "$#" -gt 0 ]]; do
   shift
 done
 
+# Find config before changing directories (needed for --remote)
+ORIGINAL_PWD="$PWD"
+if [ "$UPDATE_REMOTE" = true ]; then
+  if ! CONFIG_FILE=$(find_config 2>/dev/null); then
+    die "Cannot update remote: .slotconfig not found. Run from a project directory with 'slot init' done."
+  fi
+  # shellcheck source=/dev/null
+  set -a
+  source "$CONFIG_FILE"
+  set +a
+  
+  if [ -z "${SLOT_REMOTE_HOST:-}" ]; then
+    die "SLOT_REMOTE_HOST not set in .slotconfig"
+  fi
+fi
+
 cd "$FLOWSLOT_DIR"
 git fetch --tags origin
 
@@ -75,21 +91,8 @@ else
   fi
 fi
 
-# Update remote if requested
+# Update remote if requested (config already loaded above)
 if [ "$UPDATE_REMOTE" = true ]; then
-  # Need config for remote host
-  if ! CONFIG_FILE=$(find_config 2>/dev/null); then
-    die "Cannot update remote: .slotconfig not found. Run 'slot init' first or update manually."
-  fi
-  # shellcheck source=/dev/null
-  set -a
-  source "$CONFIG_FILE"
-  set +a
-  
-  if [ -z "${SLOT_REMOTE_HOST:-}" ]; then
-    die "SLOT_REMOTE_HOST not set in .slotconfig"
-  fi
-  
   log_info "Updating remote scripts on $SLOT_REMOTE_HOST..."
   scp "$FLOWSLOT_DIR/infra/idle-check.sh" \
       "$SLOT_REMOTE_HOST:/tmp/flowslot-idle-check"
