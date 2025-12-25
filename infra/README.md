@@ -7,6 +7,7 @@ One-time setup to create and configure the EC2 instance for flowslot.
 - AWS CLI installed and configured
 - AWS SSO access (or IAM credentials)
 - SSH key pair configured in AWS (or use default)
+- Tailscale account (free tier works)
 
 ## Step 1: Authenticate
 
@@ -23,18 +24,18 @@ cd infra
 ```
 
 This will:
-- Create security group `flowslot-dev`
-- Launch t3.2xlarge Spot instance (100GB gp3 disk)
+- Create security group `flowslot-dev` (SSH open initially)
+- Launch t4g.2xlarge ARM Spot instance (100GB gp3 disk)
 - Output instance ID and public IP
 
-**Note:** Update `AMI_ID` in `create-instance.sh` for your region. Find Ubuntu 22.04 AMI:
+**Note:** The script uses Ubuntu 22.04 ARM64 AMI for eu-central-1. For other regions, update `AMI_ID` in `create-instance.sh`:
 ```bash
 aws ec2 describe-images \
   --owners 099720109477 \
-  --filters "Name=name,Values=ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*" \
+  --filters "Name=name,Values=ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-arm64-server-*" \
   --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
   --output text \
-  --region eu-central-1
+  --region YOUR_REGION
 ```
 
 ## Step 3: Setup Remote Instance
@@ -45,17 +46,23 @@ aws ec2 describe-images \
 
 This will:
 - Install Docker
-- Install Tailscale (you'll need to authenticate)
+- Install Tailscale
 - Deploy idle-check script
-- Configure cron (auto-stop after 1 hour idle)
+- Configure cron (auto-stop after 2 hours idle)
 
-**Tailscale Authentication:**
-When prompted, run `sudo tailscale up` on the remote server. This will give you a URL to authenticate.
+**After the script completes**, you need to authenticate Tailscale manually:
+```bash
+ssh ubuntu@<public-ip> "sudo tailscale up"
+```
+Follow the URL to authenticate. Once connected, run `setup-remote.sh` again to automatically lock down the security group.
 
-## Step 4: Lock Down Security Group
+## Step 4: Verify Security
 
-After Tailscale is working, remove public SSH access:
+After running `setup-remote.sh` with Tailscale connected, the script will:
+- Automatically revoke public SSH access (port 22 from 0.0.0.0/0)
+- Verify SSH works via Tailscale IP
 
+If you need to manually lock down:
 ```bash
 aws ec2 revoke-security-group-ingress \
   --group-name flowslot-dev \
@@ -81,9 +88,28 @@ slot init
 
 ## Cost Optimization
 
-- **Spot Instances:** ~70% cheaper than On-Demand
-- **Auto-stop:** Idle instances stop after 1 hour (via cron)
+- **Spot Instances:** ~70-80% cheaper than On-Demand
+- **ARM (t4g):** ~20% cheaper than x86 (t3)
+- **Auto-stop:** Idle instances stop after 2 hours (configurable via cron)
 - **Manual control:** `slot server start/stop` for on-demand usage
 
-Estimated cost: ~$0.10/hour when running (t3.2xlarge Spot in eu-central-1)
+Estimated cost: ~$0.08/hour when running (t4g.2xlarge Spot in eu-central-1)
 
+## Idle Detection
+
+The remote server monitors activity and shuts down after 2 hours of inactivity:
+
+**Activity signals:**
+- File changes (Mutagen sync)
+- Active SSH sessions
+- Docker containers using CPU (>0.5%)
+
+**To disable:**
+```bash
+ssh ubuntu@<tailscale-ip> "crontab -l | grep -v flowslot-idle-check | crontab -"
+```
+
+**To change timeout** (e.g., 3 hours = 10800 seconds):
+```bash
+ssh ubuntu@<tailscale-ip> "sudo sed -i 's/IDLE_LIMIT=7200/IDLE_LIMIT=10800/' /usr/local/bin/flowslot-idle-check"
+```
