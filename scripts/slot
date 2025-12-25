@@ -21,6 +21,7 @@ Commands:
   close <name>      Close/stop a slot
   list              List all slots
   status            Show remote server resource usage
+  update            Update flowslot to latest version
   server start      Start EC2 instance
   server stop       Stop EC2 instance
   server status     Show EC2 instance status
@@ -101,6 +102,10 @@ case "$1" in
       set +a
     fi
     "$SCRIPT_DIR/slot-server" "$@"
+    ;;
+  update)
+    shift
+    "$SCRIPT_DIR/slot-update" "$@"
     ;;
   *)
     log_error "Unknown command: $1"

@@ -139,6 +139,19 @@ git clone https://github.com/lchachurski/flowslot.git ~/.flowslot && \
   source ~/.zshrc
 ```
 
+### Updating Flowslot
+
+```bash
+slot update            # Update local CLI
+slot update --remote   # Also update remote server scripts
+```
+
+**First-time upgraders:** If you installed flowslot before this command existed, run manually once:
+
+```bash
+cd ~/.flowslot && git pull
+```
+
 ### 3. Server Setup (One-time)
 
 Create an AWS EC2 Spot instance to run your containers.
@@ -213,6 +226,7 @@ slot open my-feature main
 | `slot close <name>` | Stop a slot's containers |
 | `slot list` | Show all active slots |
 | `slot status` | Show remote server resources |
+| `slot update [--remote]` | Update flowslot CLI (and remote scripts with --remote) |
 | `slot server start` | Start the EC2 instance |
 | `slot server stop` | Stop the EC2 instance |
 

@@ -1,0 +1,77 @@
+#!/bin/bash
+# Update flowslot to latest version
+# Usage: slot-update [--remote]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+
+FLOWSLOT_DIR="$(dirname "$SCRIPT_DIR")"
+UPDATE_REMOTE=false
+
+show_help() {
+  cat << EOF
+Usage: slot update [--remote]
+
+Update flowslot to the latest version from GitHub.
+
+Options:
+  --remote    Also update remote server scripts (idle-check, etc.)
+  -h, --help  Show this help message
+EOF
+}
+
+# Parse flags
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --remote)
+      UPDATE_REMOTE=true
+      ;;
+    -h|--help)
+      show_help
+      exit 0
+      ;;
+    *)
+      die "Unknown option: $1\n$(show_help)"
+      ;;
+  esac
+  shift
+done
+
+# Update local
+log_info "Updating flowslot..."
+cd "$FLOWSLOT_DIR"
+git fetch origin main
+LOCAL=$(git rev-parse HEAD)
+REMOTE=$(git rev-parse origin/main)
+
+if [ "$LOCAL" = "$REMOTE" ]; then
+  log_info "Local CLI already up to date"
+else
+  git pull origin main
+  success "Local CLI updated"
+fi
+
+# Update remote if requested
+if [ "$UPDATE_REMOTE" = true ]; then
+  # Need config for remote host
+  if ! CONFIG_FILE=$(find_config 2>/dev/null); then
+    die "Cannot update remote: .slotconfig not found. Run 'slot init' first or update manually."
+  fi
+  # shellcheck source=/dev/null
+  set -a
+  source "$CONFIG_FILE"
+  set +a
+  
+  if [ -z "${SLOT_REMOTE_HOST:-}" ]; then
+    die "SLOT_REMOTE_HOST not set in .slotconfig"
+  fi
+  
+  log_info "Updating remote scripts on $SLOT_REMOTE_HOST..."
+  scp "$FLOWSLOT_DIR/infra/idle-check.sh" \
+      "$SLOT_REMOTE_HOST:/tmp/flowslot-idle-check"
+  ssh "$SLOT_REMOTE_HOST" "sudo mv /tmp/flowslot-idle-check /usr/local/bin/flowslot-idle-check && sudo chmod +x /usr/local/bin/flowslot-idle-check"
+  success "Remote scripts updated"
+fi
+
