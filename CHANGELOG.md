@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2025-12-25
+
+### Added
+- Auto-detection of slot name from current directory
+- `slot info` and `slot compose` now work without explicit slot name when inside a slot directory
+
+### Changed
+- `slot info [name]` - slot name is now optional
+- `slot compose [name] <args...>` - slot name is now optional when inside slot directory
+
 ## [1.3.0] - 2025-12-25
 
 ### Added
@@ -45,7 +55,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-stop after 2 hours of inactivity
 - Tag-based versioning with `slot update` command
 
-[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/lchachurski/flowslot/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/lchachurski/flowslot/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/lchachurski/flowslot/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/lchachurski/flowslot/compare/v1.0.0...v1.1.0
