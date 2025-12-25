@@ -227,23 +227,39 @@ slot open my-feature main
 
 ## Commands
 
+**Note:** Commands with `<name>` require a slot name (e.g., `spider-seo`, `auth`, `feature`). Slot names must be lowercase alphanumeric with hyphens only.
+
+### Slot Management
+
 | Command | What it does |
 |---------|--------------|
 | `slot init` | Initialize flowslot for current project |
 | `slot open <name> [branch]` | Create/open a slot on a branch |
 | `slot close <name>` | Stop a slot's containers |
 | `slot list` | Show all active slots |
+
+### Slot Operations
+
+| Command | What it does |
+|---------|--------------|
 | `slot info <name>` | Show slot details (URLs, ports, containers, sync status) |
 | `slot compose <name> <args...>` | Proxy docker compose commands to remote slot |
-| `slot status` | Show remote server resources |
-| `slot update [--edge] [--remote]` | Update flowslot CLI (stable by default, --edge for main branch) |
-| `slot version` | Show flowslot version |
+
+### Server & System
+
+| Command | What it does |
+|---------|--------------|
+| `slot status` | Show remote server resources (all slots) |
 | `slot server start` | Start the EC2 instance |
 | `slot server stop` | Stop the EC2 instance |
+| `slot update [--edge] [--remote]` | Update flowslot CLI (stable by default, --edge for main branch) |
+| `slot version` | Show flowslot version |
 
 ---
 
 ## Working with Slots
+
+**All slot-specific commands require a slot name.** Use `slot list` to see available slots.
 
 ### View Slot Information
 
