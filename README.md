@@ -125,20 +125,76 @@ brew install mutagen-io/mutagen/mutagen
 
 # Tailscale for private networking
 brew install --cask tailscale
+# Open Tailscale app and sign in
+
+# AWS CLI (if not installed)
+brew install awscli
 ```
 
-### 2. Setup Remote Server (One-time)
+### 2. Install Flowslot
 
-See [infra/README.md](infra/README.md) for AWS EC2 Spot instance setup.
+```bash
+git clone https://github.com/lchachurski/flowslot.git ~/.flowslot
+echo 'export PATH="$PATH:$HOME/.flowslot/scripts"' >> ~/.zshrc
+source ~/.zshrc
+```
 
-### 3. Initialize Your Project
+### 3. Server Setup (One-time)
+
+Create an AWS EC2 Spot instance to run your containers.
+
+#### Authenticate with AWS
+
+```bash
+aws sso login
+aws sts get-caller-identity  # Verify
+```
+
+#### Create EC2 Instance
+
+```bash
+cd ~/.flowslot/infra
+./create-instance.sh
+```
+
+This creates:
+- Security group `flowslot-dev`
+- t4g.2xlarge ARM Spot instance (8 vCPU, 32GB RAM, 100GB disk)
+- Outputs instance ID and public IP
+
+**Note:** The script uses Ubuntu 22.04 ARM64 AMI for eu-central-1. For other regions, update `AMI_ID` in `create-instance.sh`:
+```bash
+aws ec2 describe-images \
+  --owners 099720109477 \
+  --filters "Name=name,Values=ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-arm64-server-*" \
+  --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
+  --output text \
+  --region YOUR_REGION
+```
+
+#### Setup Remote Instance
+
+```bash
+./setup-remote.sh <public-ip>
+```
+
+This installs Docker, Tailscale, and the idle-check script.
+
+**After the script completes**, authenticate Tailscale manually:
+```bash
+ssh ubuntu@<public-ip> "sudo tailscale up"
+```
+Follow the URL to authenticate. Once connected, run `setup-remote.sh` again — it will automatically lock down the security group (remove public SSH access).
+
+### 4. Initialize Your Project
 
 ```bash
 cd ~/development/your-project
 slot init
+# Enter your AWS Instance ID and Tailscale IP when prompted
 ```
 
-### 4. Create Your First Slot
+### 5. Create Your First Slot
 
 ```bash
 slot server start
@@ -339,7 +395,7 @@ By default, flowslot installs an idle-check script that **automatically shuts do
 
 ### Disable auto-stop
 
-If you prefer manual control, disable the cron job on the remote:
+If you prefer manual control:
 
 ```bash
 ssh ubuntu@<tailscale-ip> "crontab -l | grep -v flowslot-idle-check | crontab -"
@@ -353,11 +409,10 @@ ssh ubuntu@<tailscale-ip> "(crontab -l; echo '*/5 * * * * /usr/local/bin/flowslo
 
 ### Change idle timeout
 
-Edit the script on the remote:
+Edit the script on the remote (default is 7200 seconds = 2 hours):
 
 ```bash
-ssh ubuntu@<tailscale-ip> "sudo nano /usr/local/bin/flowslot-idle-check"
-# Change IDLE_LIMIT=7200 to desired seconds (e.g., 3600 for 1 hour)
+ssh ubuntu@<tailscale-ip> "sudo sed -i 's/IDLE_LIMIT=7200/IDLE_LIMIT=3600/' /usr/local/bin/flowslot-idle-check"
 ```
 
 ---
@@ -367,13 +422,6 @@ ssh ubuntu@<tailscale-ip> "sudo nano /usr/local/bin/flowslot-idle-check"
 A **slot** is a development flow — a branch, an idea, an experiment. You open slots when you need them, close them when you're done. Multiple slots, multiple flows, zero conflicts.
 
 Perfect for the way AI-assisted development actually works: exploring multiple directions, iterating fast, keeping context clean.
-
----
-
-## See Also
-
-- [Infrastructure Setup](infra/README.md) — AWS EC2 configuration
-- [Templates](templates/) — Example configuration files
 
 ---
 
