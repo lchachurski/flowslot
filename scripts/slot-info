@@ -74,7 +74,25 @@ PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
 
 # Get Tailscale IP
 TAILSCALE_IP=$(ssh "$SLOT_REMOTE_HOST" "tailscale ip -4 2>/dev/null" | head -1 || echo "")
-TAILSCALE_DOMAIN=$(ssh "$SLOT_REMOTE_HOST" "tailscale status --json 2>/dev/null | grep -o '\"DNSName\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4" || echo "")
+
+# Get Tailscale MagicDNS domain (prefer configured, then detect from tailscale)
+TAILSCALE_DOMAIN="${SLOT_REMOTE_DOMAIN:-}"
+if [ -z "$TAILSCALE_DOMAIN" ]; then
+  # Try to get DNSName from tailscale status JSON
+  TAILSCALE_DOMAIN=$(ssh "$SLOT_REMOTE_HOST" bash << 'REMOTE_DOMAIN'
+    # Try Python first (most reliable)
+    if command -v python3 >/dev/null 2>&1; then
+      tailscale status --json 2>/dev/null | python3 -c "import sys, json; data=json.load(sys.stdin); dns=data.get('Self', {}).get('DNSName', ''); print(dns.rstrip('.'))" 2>/dev/null || echo ""
+    # Fallback: use jq if available
+    elif command -v jq >/dev/null 2>&1; then
+      tailscale status --json 2>/dev/null | jq -r '.Self.DNSName // empty' 2>/dev/null | sed 's/\.$//' || echo ""
+    # Last resort: grep and extract
+    else
+      tailscale status --json 2>/dev/null | grep -o '"Self":{[^}]*"DNSName":"[^"]*"' | grep -o '"DNSName":"[^"]*"' | cut -d'"' -f4 | sed 's/\.$//' | head -1 || echo ""
+    fi
+REMOTE_DOMAIN
+)
+fi
 
 # Get branch name
 BRANCH=$(cd "$LOCAL_PATH" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
