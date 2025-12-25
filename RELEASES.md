@@ -20,8 +20,7 @@
 
 4. Update `latest` tag to point to this release:
    ```bash
-   git tag -d latest 2>/dev/null || true  # Delete local latest if exists
-   git tag -f latest  # Create/update latest tag
+   git tag -f latest v1.1  # Point latest to the new release tag
    ```
 
 5. Push to GitHub:
