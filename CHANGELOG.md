@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2025-12-25
+
+### Fixed
+- Tailscale MagicDNS domain detection in `slot info` - now shows domain instead of IP
+- Install command now uses `latest` tag for easier installation
+
+### Changed
+- Install command simplified to use `git checkout latest` instead of calculating latest tag
+
 ## [1.4.0] - 2025-12-25
 
 ### Added
@@ -55,7 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-stop after 2 hours of inactivity
 - Tag-based versioning with `slot update` command
 
-[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/lchachurski/flowslot/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/lchachurski/flowslot/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/lchachurski/flowslot/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/lchachurski/flowslot/compare/v1.1.0...v1.2.0
