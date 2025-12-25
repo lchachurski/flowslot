@@ -18,10 +18,17 @@
    git tag -a v1.1 -m "Release version 1.1"
    ```
 
-4. Push to GitHub:
+4. Update `latest` tag to point to this release:
+   ```bash
+   git tag -d latest 2>/dev/null || true  # Delete local latest if exists
+   git tag -f latest  # Create/update latest tag
+   ```
+
+5. Push to GitHub:
    ```bash
    git push origin main
    git push origin v1.1
+   git push origin latest --force  # Force push latest tag
    ```
 
 ## Versioning Scheme
