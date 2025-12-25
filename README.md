@@ -135,9 +135,14 @@ brew install awscli
 
 ```bash
 git clone https://github.com/lchachurski/flowslot.git ~/.flowslot && \
+  cd ~/.flowslot && \
+  git fetch --tags && \
+  git checkout $(git tag --sort=v:refname | tail -1) && \
   echo 'export PATH="$PATH:$HOME/.flowslot/scripts"' >> ~/.zshrc && \
   source ~/.zshrc
 ```
+
+This installs the latest stable release. To install a specific version, replace `$(git tag --sort=v:refname | tail -1)` with the tag name (e.g., `v1.4`).
 
 ### Updating Flowslot
 
