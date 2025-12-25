@@ -323,8 +323,42 @@ See [templates/](templates/) for complete examples.
 ## Cost
 
 - **EC2 Spot Instance:** ~$0.08/hour (t4g.2xlarge ARM in eu-central-1)
-- **Auto-stop:** Server stops after 1 hour of inactivity
-- **Typical daily cost:** $0.80-1.20 for an 8-hour workday
+- **Auto-stop:** Server stops after 2 hours of inactivity (enabled by default)
+- **Typical daily cost:** $0.64-0.96 for an 8-hour workday
+
+---
+
+## Auto-Stop (Idle Detection)
+
+By default, flowslot installs an idle-check script that **automatically shuts down** the EC2 instance after **2 hours of inactivity**. This saves money when you forget to stop the server.
+
+### What counts as activity:
+- File changes (Mutagen syncs)
+- Container CPU usage (active requests)
+- SSH/Tailscale connections
+
+### Disable auto-stop
+
+If you prefer manual control, disable the cron job on the remote:
+
+```bash
+ssh ubuntu@<tailscale-ip> "crontab -l | grep -v flowslot-idle-check | crontab -"
+```
+
+### Re-enable auto-stop
+
+```bash
+ssh ubuntu@<tailscale-ip> "(crontab -l; echo '*/5 * * * * /usr/local/bin/flowslot-idle-check') | crontab -"
+```
+
+### Change idle timeout
+
+Edit the script on the remote:
+
+```bash
+ssh ubuntu@<tailscale-ip> "sudo nano /usr/local/bin/flowslot-idle-check"
+# Change IDLE_LIMIT=7200 to desired seconds (e.g., 3600 for 1 hour)
+```
 
 ---
 
