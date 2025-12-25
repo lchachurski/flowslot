@@ -1,0 +1,194 @@
+#!/bin/bash
+# Show slot information
+# Usage: slot info <name>
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# Source common functions
+# shellcheck source=lib/common.sh
+source "$LIB_DIR/common.sh"
+
+show_help() {
+  cat << EOF
+Usage: slot info <name>
+
+Show detailed information about a slot.
+
+Arguments:
+  name      Slot name
+
+Options:
+  -h, --help    Show this help message
+
+Examples:
+  slot info spider-seo
+EOF
+}
+
+# Handle help flag
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  show_help
+  exit 0
+fi
+
+if [ -z "${1:-}" ]; then
+  log_error "Slot name required"
+  echo ""
+  show_help
+  exit 1
+fi
+
+SLOT_NAME="$1"
+validate_slot_name "$SLOT_NAME"
+
+LOCAL_PATH="$SLOT_SLOTS_DIR/$SLOT_NAME"
+REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
+
+# Check if slot exists locally
+if [ ! -d "$LOCAL_PATH" ]; then
+  die "Slot '$SLOT_NAME' not found locally. Run 'slot open $SLOT_NAME' first."
+fi
+
+# Check if slot exists on remote
+if ! ssh "$SLOT_REMOTE_HOST" "[ -d '$REMOTE_PATH' ]" 2>/dev/null; then
+  log_warn "Slot '$SLOT_NAME' not found on remote server"
+  exit 1
+fi
+
+# Get slot number and port base
+SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" "cat '$REMOTE_PATH/.slot_num' 2>/dev/null" || echo "")
+if [ -z "$SLOT_NUM" ]; then
+  log_warn "Slot number not found. Slot may not be fully initialized."
+  exit 1
+fi
+
+PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
+
+# Get Tailscale IP
+TAILSCALE_IP=$(ssh "$SLOT_REMOTE_HOST" "tailscale ip -4 2>/dev/null" | head -1 || echo "")
+TAILSCALE_DOMAIN=$(ssh "$SLOT_REMOTE_HOST" "tailscale status --json 2>/dev/null | grep -o '\"DNSName\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4" || echo "")
+
+# Get branch name
+BRANCH=$(cd "$LOCAL_PATH" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+# Source flowslot-ports.sh locally to get service ports
+if [ -f "$SLOT_SOURCE_DIR/flowslot-ports.sh" ]; then
+  export SLOT="$SLOT_NUM"
+  export SLOT_PORT_BASE="$PORT_BASE"
+  # shellcheck source=/dev/null
+  source "$SLOT_SOURCE_DIR/flowslot-ports.sh"
+fi
+
+# Get container status
+CONTAINER_STATUS=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
+  set -euo pipefail
+  cd '$REMOTE_PATH'
+  
+  export SLOT=$SLOT_NUM
+  export SLOT_PORT_BASE=$PORT_BASE
+  export COMPOSE_PROJECT_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
+  
+  # Source flowslot-ports.sh if present
+  if [ -f 'flowslot-ports.sh' ]; then
+    source flowslot-ports.sh
+  fi
+  
+  # Build compose command
+  COMPOSE_FILES="${SLOT_COMPOSE_FILES}"
+  COMPOSE_CMD="docker compose"
+  for f in \$COMPOSE_FILES; do
+    if [ -f "\$f" ]; then
+      COMPOSE_CMD="\$COMPOSE_CMD -f \$f"
+    fi
+  done
+  
+  if [ -f 'docker-compose.flowslot.yml' ]; then
+    if ! echo "\$COMPOSE_CMD" | grep -q 'docker-compose.flowslot.yml'; then
+      COMPOSE_CMD="\$COMPOSE_CMD -f docker-compose.flowslot.yml"
+    fi
+  fi
+  
+  # Get container status (skip header line)
+  eval "\$COMPOSE_CMD ps" 2>/dev/null | tail -n +2 || echo ""
+REMOTE_SCRIPT
+)
+
+# Get Mutagen sync status
+SYNC_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
+SYNC_STATUS=$(mutagen sync list --label-selector="name=$SYNC_NAME" 2>/dev/null || echo "")
+
+# Display information
+echo ""
+echo -e "${CYAN}=== Slot: ${BOLD}$SLOT_NAME${NC}${CYAN} ===${NC}"
+echo ""
+
+echo "Paths:"
+echo "  Local:  $LOCAL_PATH"
+echo "  Remote: $SLOT_REMOTE_HOST:$REMOTE_PATH"
+echo ""
+
+echo "Configuration:"
+echo "  Branch: $BRANCH"
+echo "  Slot #: $SLOT_NUM"
+echo "  Port Base: $PORT_BASE"
+echo ""
+
+# Display service URLs if ports are available
+if [ -n "${SLOT_PORT_WEB:-}" ] && [ -n "$TAILSCALE_DOMAIN" ]; then
+  echo "Service URLs:"
+  [ -n "${SLOT_PORT_WEB:-}" ] && echo "  Web:     http://$TAILSCALE_DOMAIN:${SLOT_PORT_WEB}"
+  [ -n "${SLOT_PORT_API:-}" ] && echo "  API:     http://$TAILSCALE_DOMAIN:${SLOT_PORT_API}"
+  [ -n "${SLOT_PORT_LANDING:-}" ] && echo "  Landing: http://$TAILSCALE_DOMAIN:${SLOT_PORT_LANDING}"
+  [ -n "${SLOT_PORT_SPIDER:-}" ] && echo "  Spider:  http://$TAILSCALE_DOMAIN:${SLOT_PORT_SPIDER}"
+  [ -n "${SLOT_PORT_CODER:-}" ] && echo "  Coder:   http://$TAILSCALE_DOMAIN:${SLOT_PORT_CODER}"
+  [ -n "${SLOT_PORT_HOSTING:-}" ] && echo "  Hosting: http://$TAILSCALE_DOMAIN:${SLOT_PORT_HOSTING}"
+  [ -n "${SLOT_PORT_DRAFT:-}" ] && echo "  Draft:   http://$TAILSCALE_DOMAIN:${SLOT_PORT_DRAFT}"
+  echo ""
+elif [ -n "$TAILSCALE_IP" ]; then
+  echo "Service URLs (IP):"
+  [ -n "${SLOT_PORT_WEB:-}" ] && echo "  Web:     http://$TAILSCALE_IP:${SLOT_PORT_WEB}"
+  [ -n "${SLOT_PORT_API:-}" ] && echo "  API:     http://$TAILSCALE_IP:${SLOT_PORT_API}"
+  [ -n "${SLOT_PORT_LANDING:-}" ] && echo "  Landing: http://$TAILSCALE_IP:${SLOT_PORT_LANDING}"
+  [ -n "${SLOT_PORT_SPIDER:-}" ] && echo "  Spider:  http://$TAILSCALE_IP:${SLOT_PORT_SPIDER}"
+  [ -n "${SLOT_PORT_CODER:-}" ] && echo "  Coder:   http://$TAILSCALE_IP:${SLOT_PORT_CODER}"
+  [ -n "${SLOT_PORT_HOSTING:-}" ] && echo "  Hosting: http://$TAILSCALE_IP:${SLOT_PORT_HOSTING}"
+  [ -n "${SLOT_PORT_DRAFT:-}" ] && echo "  Draft:   http://$TAILSCALE_IP:${SLOT_PORT_DRAFT}"
+  echo ""
+fi
+
+# Parse and display container status
+if [ -n "$CONTAINER_STATUS" ]; then
+  echo "Containers:"
+  echo "$CONTAINER_STATUS" | while IFS= read -r line; do
+    if [ -n "$line" ]; then
+      # Extract container name (first column) and status
+      container_name=$(echo "$line" | awk '{print $1}')
+      status=$(echo "$line" | awk '{for(i=2;i<=NF;i++) printf "%s ", $i; print ""}' | sed 's/ $//')
+      echo "  $container_name: $status"
+    fi
+  done
+  echo ""
+else
+  echo "Containers:"
+  echo "  No containers running"
+  echo ""
+fi
+
+# Display sync status
+if echo "$SYNC_STATUS" | grep -q "Name:"; then
+  echo "Sync Status:"
+  if echo "$SYNC_STATUS" | grep -q "Status: Connected"; then
+    echo -e "  ${GREEN}Connected${NC}"
+  else
+    echo -e "  ${YELLOW}$(echo "$SYNC_STATUS" | grep "Status:" | head -1 | sed 's/.*Status: //')${NC}"
+  fi
+else
+  echo "Sync Status:"
+  echo -e "  ${YELLOW}Not syncing${NC}"
+fi
+
+echo ""
+

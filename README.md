@@ -233,11 +233,66 @@ slot open my-feature main
 | `slot open <name> [branch]` | Create/open a slot on a branch |
 | `slot close <name>` | Stop a slot's containers |
 | `slot list` | Show all active slots |
+| `slot info <name>` | Show slot details (URLs, ports, containers, sync status) |
+| `slot compose <name> <args...>` | Proxy docker compose commands to remote slot |
 | `slot status` | Show remote server resources |
 | `slot update [--edge] [--remote]` | Update flowslot CLI (stable by default, --edge for main branch) |
 | `slot version` | Show flowslot version |
 | `slot server start` | Start the EC2 instance |
 | `slot server stop` | Stop the EC2 instance |
+
+---
+
+## Working with Slots
+
+### View Slot Information
+
+Get detailed information about a slot, including service URLs and container status:
+
+```bash
+slot info spider-seo
+```
+
+Output shows:
+- Local and remote paths
+- Git branch
+- Service URLs (web, API, etc.)
+- Container status
+- Mutagen sync status
+
+### Remote Container Control
+
+Use `slot compose` to run any docker compose command on the remote slot without manually SSHing:
+
+```bash
+# View containers
+slot compose spider-seo ps
+
+# Rebuild containers
+slot compose spider-seo build --no-cache
+slot compose spider-seo up -d
+
+# View logs
+slot compose spider-seo logs -f web
+slot compose spider-seo logs -f api
+
+# Execute commands in containers
+slot compose spider-seo exec thunder bash
+slot compose spider-seo exec postgres psql -U thunder
+
+# Restart services
+slot compose spider-seo restart api
+slot compose spider-seo restart web
+
+# Run one-off commands
+slot compose spider-seo run --rm api npm run migrate
+slot compose spider-seo run --rm api npm test
+
+# Stop everything
+slot compose spider-seo down
+```
+
+**Why this is useful:** When developing in a slot directory (e.g., `~/myapp-slots/spider-seo/`), you often need to rebuild containers, check logs, or run migrations. Instead of manually SSHing and navigating to the remote directory, `slot compose` handles it all — just like running `docker compose` locally, but on the remote slot.
 
 ---
 

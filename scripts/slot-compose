@@ -1,0 +1,147 @@
+#!/bin/bash
+# Proxy docker compose commands to remote slot
+# Usage: slot compose <name> <docker-compose-args...>
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# Source common functions
+# shellcheck source=lib/common.sh
+source "$LIB_DIR/common.sh"
+
+show_help() {
+  cat << EOF
+Usage: slot compose <name> <docker-compose-args...>
+
+Proxy docker compose commands to a remote slot.
+
+Arguments:
+  name                    Slot name
+  docker-compose-args     Any docker compose command and arguments
+
+Options:
+  -h, --help              Show this help message
+
+Examples:
+  slot compose spider-seo ps
+  slot compose spider-seo build --no-cache
+  slot compose spider-seo up -d
+  slot compose spider-seo logs -f web
+  slot compose spider-seo exec thunder bash
+  slot compose spider-seo restart api
+  slot compose spider-seo run --rm api npm run migrate
+EOF
+}
+
+# Handle help flag
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  show_help
+  exit 0
+fi
+
+if [ -z "${1:-}" ]; then
+  log_error "Slot name required"
+  echo ""
+  show_help
+  exit 1
+fi
+
+SLOT_NAME="$1"
+shift  # Remove slot name from arguments
+
+validate_slot_name "$SLOT_NAME"
+
+if [ $# -eq 0 ]; then
+  log_error "Docker compose command required"
+  echo ""
+  show_help
+  exit 1
+fi
+
+REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
+
+# Check if slot exists on remote
+if ! ssh "$SLOT_REMOTE_HOST" "[ -d '$REMOTE_PATH' ]" 2>/dev/null; then
+  die "Slot '$SLOT_NAME' not found on remote server. Run 'slot open $SLOT_NAME' first."
+fi
+
+# Get slot number
+SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" "cat '$REMOTE_PATH/.slot_num' 2>/dev/null" || echo "")
+if [ -z "$SLOT_NUM" ]; then
+  log_warn "Slot number not found. Slot may not be fully initialized."
+  exit 1
+fi
+
+PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
+
+# Get Tailscale IP
+TAILSCALE_IP=$(ssh "$SLOT_REMOTE_HOST" "tailscale ip -4 2>/dev/null" | head -1 || echo "")
+
+# Detect if we need TTY (for interactive commands like exec, logs -f)
+NEED_TTY=false
+for arg in "$@"; do
+  if [[ "$arg" == "exec" ]] || [[ "$arg" == "run" ]]; then
+    NEED_TTY=true
+    break
+  fi
+  if [[ "$arg" == "logs" ]] && [[ "$*" == *"-f"* ]]; then
+    NEED_TTY=true
+    break
+  fi
+done
+
+# Also check if stdin is a TTY
+if [ -t 0 ]; then
+  NEED_TTY=true
+fi
+
+# Build compose command arguments string (properly escaped)
+COMPOSE_ARGS=""
+for arg in "$@"; do
+  COMPOSE_ARGS="$COMPOSE_ARGS $(printf '%q' "$arg")"
+done
+
+# Build SSH command with TTY if needed
+SSH_CMD="ssh"
+if [ "$NEED_TTY" = true ]; then
+  SSH_CMD="ssh -t"
+fi
+
+# Execute docker compose command on remote
+$SSH_CMD "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
+  set -euo pipefail
+  cd '$REMOTE_PATH'
+  
+  # Export slot variables
+  export SLOT=$SLOT_NUM
+  export SLOT_PORT_BASE=$PORT_BASE
+  export SLOT_REMOTE_IP="${TAILSCALE_IP:-localhost}"
+  export COMPOSE_PROJECT_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
+  
+  # Source project-specific port definitions if they exist
+  if [ -f 'flowslot-ports.sh' ]; then
+    source flowslot-ports.sh
+  fi
+  
+  # Build compose command from configured files
+  COMPOSE_FILES="${SLOT_COMPOSE_FILES}"
+  COMPOSE_CMD="docker compose"
+  for f in \$COMPOSE_FILES; do
+    if [ -f "\$f" ]; then
+      COMPOSE_CMD="\$COMPOSE_CMD -f \$f"
+    fi
+  done
+  
+  # Add flowslot override file if it exists and not already included
+  if [ -f 'docker-compose.flowslot.yml' ]; then
+    if ! echo "\$COMPOSE_CMD" | grep -q 'docker-compose.flowslot.yml'; then
+      COMPOSE_CMD="\$COMPOSE_CMD -f docker-compose.flowslot.yml"
+    fi
+  fi
+  
+  # Append user's arguments and execute
+  eval "\$COMPOSE_CMD$COMPOSE_ARGS"
+REMOTE_SCRIPT
+

@@ -20,6 +20,8 @@ Commands:
   open <name>       Open/create a slot
   close <name>      Close/stop a slot
   list              List all slots
+  info <name>       Show slot details (URLs, ports, containers)
+  compose <name>    Proxy docker compose commands to remote slot
   status            Show remote server resource usage
   update            Update flowslot to latest version
   version           Show flowslot version
@@ -100,6 +102,28 @@ case "$1" in
     source "$CONFIG_FILE"
     set +a
     "$SCRIPT_DIR/slot-status" "$@"
+    ;;
+  info)
+    shift
+    if ! CONFIG_FILE=$(find_config); then
+      die ".slotconfig not found. Run 'slot init' first."
+    fi
+    # shellcheck source=/dev/null
+    set -a
+    source "$CONFIG_FILE"
+    set +a
+    "$SCRIPT_DIR/slot-info" "$@"
+    ;;
+  compose)
+    shift
+    if ! CONFIG_FILE=$(find_config); then
+      die ".slotconfig not found. Run 'slot init' first."
+    fi
+    # shellcheck source=/dev/null
+    set -a
+    source "$CONFIG_FILE"
+    set +a
+    "$SCRIPT_DIR/slot-compose" "$@"
     ;;
   server)
     shift
