@@ -8,7 +8,7 @@
 set -euo pipefail
 
 readonly IDLE_LIMIT=7200  # 2 hours in seconds
-readonly STATE_FILE="/var/run/flowslot-last-activity"
+readonly STATE_FILE="/tmp/flowslot-last-activity"
 readonly SLOTS_BASE="/srv"
 
 # Initialize state file if it doesn't exist
