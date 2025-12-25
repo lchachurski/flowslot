@@ -73,6 +73,14 @@ else
   git worktree add "$LOCAL_PATH" HEAD
 fi
 
+# Symlink .slotconfig into slot directory so commands work from there
+CONFIG_SOURCE="$SLOT_SOURCE_DIR/.slotconfig"
+CONFIG_LINK="$LOCAL_PATH/.slotconfig"
+if [ -f "$CONFIG_SOURCE" ] && [ ! -e "$CONFIG_LINK" ]; then
+  ln -s "$CONFIG_SOURCE" "$CONFIG_LINK"
+  log_info "Linked .slotconfig for slot directory access"
+fi
+
 # Create remote directory (Mutagen will sync files there)
 log_info "Setting up remote directory..."
 ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SETUP
