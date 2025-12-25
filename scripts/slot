@@ -22,20 +22,27 @@ Commands:
   list              List all slots
   status            Show remote server resource usage
   update            Update flowslot to latest version
+  version           Show flowslot version
   server start      Start EC2 instance
   server stop       Stop EC2 instance
   server status     Show EC2 instance status
 
 Options:
   -h, --help        Show this help message
+  -v, --version     Show version
 
 For more information, run: slot <command> --help
 EOF
 }
 
-# Handle help flag
+# Handle help and version flags
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   show_help
+  exit 0
+fi
+
+if [ "${1:-}" = "-v" ] || [ "${1:-}" = "--version" ]; then
+  "$SCRIPT_DIR/slot-version"
   exit 0
 fi
 
@@ -106,6 +113,9 @@ case "$1" in
   update)
     shift
     "$SCRIPT_DIR/slot-update" "$@"
+    ;;
+  version)
+    "$SCRIPT_DIR/slot-version"
     ;;
   *)
     log_error "Unknown command: $1"

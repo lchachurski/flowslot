@@ -142,14 +142,22 @@ git clone https://github.com/lchachurski/flowslot.git ~/.flowslot && \
 ### Updating Flowslot
 
 ```bash
-slot update            # Update local CLI
+slot update            # Update to latest stable version
+slot update --edge     # Update to main branch (bleeding edge)
 slot update --remote   # Also update remote server scripts
 ```
 
-**First-time upgraders:** If you installed flowslot before this command existed, run manually once:
+Check your version:
+```bash
+slot version
+# or
+slot -v
+```
+
+**First-time upgraders:** If you installed flowslot before v1.0:
 
 ```bash
-cd ~/.flowslot && git pull
+cd ~/.flowslot && git fetch --tags && git checkout $(git tag --sort=v:refname | tail -1)
 ```
 
 ### 3. Server Setup (One-time)
@@ -226,7 +234,8 @@ slot open my-feature main
 | `slot close <name>` | Stop a slot's containers |
 | `slot list` | Show all active slots |
 | `slot status` | Show remote server resources |
-| `slot update [--remote]` | Update flowslot CLI (and remote scripts with --remote) |
+| `slot update [--edge] [--remote]` | Update flowslot CLI (stable by default, --edge for main branch) |
+| `slot version` | Show flowslot version |
 | `slot server start` | Start the EC2 instance |
 | `slot server stop` | Stop the EC2 instance |
 

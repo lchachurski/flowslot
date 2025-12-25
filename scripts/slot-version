@@ -1,0 +1,17 @@
+#!/bin/bash
+# Show flowslot version
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FLOWSLOT_DIR="$(dirname "$SCRIPT_DIR")"
+
+cd "$FLOWSLOT_DIR"
+
+# Get version from git tag or describe
+VERSION=$(git describe --tags --exact-match HEAD 2>/dev/null || \
+          git describe --tags --always 2>/dev/null || \
+          echo "unknown")
+
+echo "flowslot $VERSION"
+

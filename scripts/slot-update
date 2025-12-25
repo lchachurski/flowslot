@@ -1,6 +1,6 @@
 #!/bin/bash
 # Update flowslot to latest version
-# Usage: slot-update [--remote]
+# Usage: slot-update [--remote] [--edge]
 
 set -euo pipefail
 
@@ -9,16 +9,20 @@ source "$SCRIPT_DIR/lib/common.sh"
 
 FLOWSLOT_DIR="$(dirname "$SCRIPT_DIR")"
 UPDATE_REMOTE=false
+USE_EDGE=false
 
 show_help() {
   cat << EOF
-Usage: slot update [--remote]
+Usage: slot update [--remote] [--edge]
 
-Update flowslot to the latest version from GitHub.
+Update flowslot to the latest version.
 
 Options:
+  --edge      Update to main branch (bleeding edge, may be unstable)
   --remote    Also update remote server scripts (idle-check, etc.)
   -h, --help  Show this help message
+
+By default, updates to the latest stable release (git tag).
 EOF
 }
 
@@ -27,6 +31,9 @@ while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --remote)
       UPDATE_REMOTE=true
+      ;;
+    --edge)
+      USE_EDGE=true
       ;;
     -h|--help)
       show_help
@@ -39,18 +46,33 @@ while [[ "$#" -gt 0 ]]; do
   shift
 done
 
-# Update local
-log_info "Updating flowslot..."
 cd "$FLOWSLOT_DIR"
-git fetch origin main
-LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse origin/main)
+git fetch --tags origin
 
-if [ "$LOCAL" = "$REMOTE" ]; then
-  log_info "Local CLI already up to date"
-else
+# Get current version
+CURRENT=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "untagged")
+
+if [ "$USE_EDGE" = true ]; then
+  # Bleeding edge: pull from main
+  log_info "Updating to bleeding edge (main branch)..."
+  git checkout main 2>/dev/null || git checkout -b main origin/main
   git pull origin main
-  success "Local CLI updated"
+  success "Updated to main branch (edge)"
+else
+  # Stable: checkout latest tag
+  LATEST_TAG=$(git tag --sort=v:refname | tail -1 || echo "")
+  
+  if [ -z "$LATEST_TAG" ]; then
+    die "No version tags found. Use --edge to update from main branch."
+  fi
+  
+  if [ "$CURRENT" = "$LATEST_TAG" ]; then
+    log_info "Already on latest version: $LATEST_TAG"
+  else
+    log_info "Updating from $CURRENT to $LATEST_TAG..."
+    git checkout "$LATEST_TAG"
+    success "Updated to version $LATEST_TAG"
+  fi
 fi
 
 # Update remote if requested
@@ -74,4 +96,3 @@ if [ "$UPDATE_REMOTE" = true ]; then
   ssh "$SLOT_REMOTE_HOST" "sudo mv /tmp/flowslot-idle-check /usr/local/bin/flowslot-idle-check && sudo chmod +x /usr/local/bin/flowslot-idle-check"
   success "Remote scripts updated"
 fi
-
