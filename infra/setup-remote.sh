@@ -115,14 +115,14 @@ ssh "$REMOTE_USER@$PUBLIC_IP" bash << 'REMOTE_SCRIPT'
 REMOTE_SCRIPT
 
 # Setup cron job
-log_info "Setting up cron job (checks every 15 minutes)..."
+log_info "Setting up cron job (checks every 5 minutes)..."
 ssh "$REMOTE_USER@$PUBLIC_IP" bash << 'REMOTE_SCRIPT'
   set -euo pipefail
   # Remove existing cron job if present
   crontab -l 2>/dev/null | grep -v "flowslot-idle-check" | crontab - 2>/dev/null || true
   
-  # Add new cron job
-  (crontab -l 2>/dev/null; echo "*/15 * * * * /usr/local/bin/flowslot-idle-check") | crontab -
+  # Add new cron job (every 5 minutes for responsive idle detection)
+  (crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/flowslot-idle-check") | crontab -
   echo "  Cron job configured"
 REMOTE_SCRIPT
 
