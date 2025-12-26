@@ -44,13 +44,13 @@ check_file_changes() {
   return 1  # No activity
 }
 
-# Check 2: Docker container network activity (requests coming in)
+# Check 2: Docker container CPU activity (indicates requests/processing)
 check_docker_activity() {
-  # Check if any container has received network traffic recently
-  # by looking at container stats - if CPU > 0.5% there's likely activity
+  # Check if any container has significant CPU usage (> 5%)
+  # Note: Postgres idles at ~2% due to background tasks, so 5% threshold avoids false positives
   ACTIVE_CONTAINERS=$(docker stats --no-stream --format "{{.CPUPerc}}" 2>/dev/null | \
     sed 's/%//g' | \
-    awk '$1 > 0.5 {count++} END {print count+0}')
+    awk '$1 > 5.0 {count++} END {print count+0}')
   
   if [[ "$ACTIVE_CONTAINERS" -gt 0 ]]; then
     return 0  # Activity found

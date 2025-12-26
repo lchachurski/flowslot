@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2025-12-26
+
+### Fixed
+- Idle-check CPU threshold raised from 0.5% to 5% to avoid false positives from Postgres background tasks
+
 ## [1.4.1] - 2025-12-25
 
 ### Fixed
@@ -64,7 +69,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-stop after 2 hours of inactivity
 - Tag-based versioning with `slot update` command
 
-[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/lchachurski/flowslot/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/lchachurski/flowslot/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/lchachurski/flowslot/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/lchachurski/flowslot/compare/v1.2.0...v1.3.0
