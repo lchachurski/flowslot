@@ -3,10 +3,25 @@
 # Place this file in your project root alongside docker-compose files
 #
 # Available variables from flowslot:
-#   SLOT            - Slot number (1, 2, 3, ...)
-#   SLOT_PORT_BASE  - Base port for this slot (7200, 7300, 7400, ...)
-#   SLOT_REMOTE_IP  - Tailscale IP of the remote server
+#   SLOT              - Slot number (1, 2, 3, ...)
+#   SLOT_NAME         - Slot name (e.g., "feature-x", "auth")
+#   SLOT_PORT_BASE    - Base port for this slot (7200, 7300, 7400, ...)
+#   SLOT_PROJECT_NAME - Project name from .slotconfig
+#   SLOT_REMOTE_IP    - Tailscale IP of the remote server
 #   COMPOSE_PROJECT_NAME - Unique Docker Compose project name
+
+# ============================================================
+# DOMAIN PATTERNS
+# ============================================================
+# Both patterns work - pick based on your needs:
+#   Simple:   shorter URLs, easier OAuth (port identifies slot)
+#   Extended: separate browser history per slot
+
+export SLOT_DOMAIN="${SLOT_PROJECT_NAME}.flowslot.dev"                     # simple
+export SLOT_DOMAIN_FULL="${SLOT_NAME}.${SLOT_PROJECT_NAME}.flowslot.dev"   # extended
+
+# Use in docker-compose.flowslot.yml:
+#   NEXTAUTH_URL=http://web.${SLOT_DOMAIN}:${SLOT_PORT_WEB}
 
 # ============================================================
 # PORT DEFINITIONS

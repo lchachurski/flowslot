@@ -385,32 +385,31 @@ slot compose feature-x exec api bash
 
 Flowslot provides wildcard DNS resolution via dnsmasq on the EC2 instance, accessible through Tailscale Split DNS. This enables human-readable URLs instead of raw IP addresses.
 
-### URL Pattern
+### URL Patterns
 
-```
-{service}.{slot}.{project}.flowslot.dev:{port}
-```
+Two patterns are available — both work with the dnsmasq wildcard:
+
+| Pattern | Format | Example |
+|---------|--------|---------|
+| **Simple** | `{service}.{project}.flowslot.dev:{port}` | `http://web.myapp.flowslot.dev:7201` |
+| **Extended** | `{service}.{slot}.{project}.flowslot.dev:{port}` | `http://web.feature.myapp.flowslot.dev:7201` |
+
+**When to use which:**
+- **Simple:** Shorter URLs, easier OAuth whitelisting (port identifies slot)
+- **Extended:** Separate browser history per slot, more descriptive URLs
 
 **Components:**
-- `{service}` - Service name (e.g., `web`, `api`, `draft--sitename`)
-- `{slot}` - Slot name (e.g., `feature-x`, `auth`, `feature`)
+- `{service}` - Service name (e.g., `web`, `api`, `admin`)
+- `{slot}` - Slot name (e.g., `feature-x`, `auth`) — optional
 - `{project}` - Project name (e.g., `myapp`, `webapp`)
-- `flowslot.dev` - Reserved domain (configured via Tailscale Split DNS)
-- `{port}` - Port number (e.g., `7201`, `7203`)
-
-### Examples
-
-```
-http://web.feature.myapp.flowslot.dev:7201
-http://api.feature.myapp.flowslot.dev:7203
-http://admin.feature.myapp.flowslot.dev:7205
-```
+- `flowslot.dev` - Domain (configured via Tailscale Split DNS)
+- `{port}` - Port number (e.g., `7201`, `7203`) — unique per slot
 
 ### How It Works
 
 1. **dnsmasq on EC2** resolves all `*.flowslot.dev` queries to the EC2's Tailscale IP
 2. **Tailscale Split DNS** forwards `*.flowslot.dev` queries from your devices to the EC2 instance
-3. **Your browser** resolves `web.feature.myapp.flowslot.dev` → EC2 Tailscale IP → connects to port 7201
+3. **Your browser** resolves `web.myapp.flowslot.dev` → EC2 Tailscale IP → connects to port 7201
 
 ### Benefits
 

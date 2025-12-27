@@ -72,9 +72,11 @@ fi
 
 PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
 
-# Build flowslot domain: {service}.{slot}.{project}.flowslot.dev
-# This uses the wildcard DNS configured via dnsmasq on the EC2 instance
-FLOWSLOT_DOMAIN_BASE="${SLOT_NAME}.${SLOT_PROJECT_NAME}.flowslot.dev"
+# Build flowslot domains - both patterns work with dnsmasq wildcard
+# Simple:   {service}.{project}.flowslot.dev:{port}
+# Extended: {service}.{slot}.{project}.flowslot.dev:{port}
+DOMAIN_SIMPLE="${SLOT_PROJECT_NAME}.flowslot.dev"
+DOMAIN_EXTENDED="${SLOT_NAME}.${SLOT_PROJECT_NAME}.flowslot.dev"
 
 # Get Tailscale IP for fallback display
 TAILSCALE_IP=$(ssh "$SLOT_REMOTE_HOST" "tailscale ip -4 2>/dev/null" | head -1 || echo "")
@@ -85,7 +87,9 @@ BRANCH=$(cd "$LOCAL_PATH" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo
 # Source flowslot-ports.sh locally to get service ports
 if [ -f "$SLOT_SOURCE_DIR/flowslot-ports.sh" ]; then
   export SLOT="$SLOT_NUM"
+  export SLOT_NAME="$SLOT_NAME"
   export SLOT_PORT_BASE="$PORT_BASE"
+  export SLOT_PROJECT_NAME="$SLOT_PROJECT_NAME"
   # shellcheck source=/dev/null
   source "$SLOT_SOURCE_DIR/flowslot-ports.sh"
 fi
@@ -96,7 +100,9 @@ CONTAINER_STATUS=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
   cd '$REMOTE_PATH'
   
   export SLOT=$SLOT_NUM
+  export SLOT_NAME="${SLOT_NAME}"
   export SLOT_PORT_BASE=$PORT_BASE
+  export SLOT_PROJECT_NAME="${SLOT_PROJECT_NAME}"
   export COMPOSE_PROJECT_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
   
   # Source flowslot-ports.sh if present
@@ -145,17 +151,15 @@ echo "  Port Base: $PORT_BASE"
 echo ""
 
 # Display service URLs dynamically based on SLOT_PORT_* variables
-# Each SLOT_PORT_<SERVICE> variable becomes http://<service>.{slot}.{project}.flowslot.dev:<port>
-echo "Service URLs:"
+# Shows both simple and extended domain patterns
+echo "Service URLs (simple - port identifies slot):"
 HAS_URLS=false
 for var in $(compgen -v | grep '^SLOT_PORT_' | sort); do
   port="${!var}"
   if [ -n "$port" ]; then
-    # Extract service name: SLOT_PORT_WEB -> web
     service=$(echo "$var" | sed 's/^SLOT_PORT_//' | tr '[:upper:]' '[:lower:]')
-    # Skip internal/non-HTTP ports
     if [[ "$service" != "db" && "$service" != "base" ]]; then
-      printf "  %-10s http://%s.%s:%s\n" "${service}:" "${service}" "${FLOWSLOT_DOMAIN_BASE}" "${port}"
+      printf "  %-10s http://%s.%s:%s\n" "${service}:" "${service}" "${DOMAIN_SIMPLE}" "${port}"
       HAS_URLS=true
     fi
   fi
@@ -163,6 +167,21 @@ done
 if [ "$HAS_URLS" = false ]; then
   echo "  (no SLOT_PORT_* variables defined in flowslot-ports.sh)"
 fi
+echo ""
+
+echo "Service URLs (extended - slot name in domain):"
+for var in $(compgen -v | grep '^SLOT_PORT_' | sort); do
+  port="${!var}"
+  if [ -n "$port" ]; then
+    service=$(echo "$var" | sed 's/^SLOT_PORT_//' | tr '[:upper:]' '[:lower:]')
+    if [[ "$service" != "db" && "$service" != "base" ]]; then
+      printf "  %-10s http://%s.%s:%s\n" "${service}:" "${service}" "${DOMAIN_EXTENDED}" "${port}"
+    fi
+  fi
+done
+echo ""
+
+echo -e "${CYAN}Tip:${NC} Both URL patterns work. Use simple for OAuth, extended for browser history separation."
 echo ""
 
 # Show Tailscale IP for reference

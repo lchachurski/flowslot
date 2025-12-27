@@ -139,7 +139,9 @@ $SSH_CMD "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
   
   # Export slot variables
   export SLOT=$SLOT_NUM
+  export SLOT_NAME="${SLOT_NAME}"
   export SLOT_PORT_BASE=$PORT_BASE
+  export SLOT_PROJECT_NAME="${SLOT_PROJECT_NAME}"
   export SLOT_REMOTE_IP="${TAILSCALE_IP:-localhost}"
   export COMPOSE_PROJECT_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
   
