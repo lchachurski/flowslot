@@ -214,11 +214,11 @@ log_info ""
 
 # Wait for cloud-init and Tailscale to complete
 log_info "Waiting for cloud-init to complete and Tailscale to connect..."
-log_info "(this takes 2-3 minutes, max wait: 3 minutes)"
+log_info "(this takes 4-6 minutes, max wait: 7 minutes)"
 echo ""
 
 TAILSCALE_IP=""
-MAX_ATTEMPTS=36  # 3 minutes max (36 * 5s = 180s)
+MAX_ATTEMPTS=84  # 7 minutes max (84 * 5s = 420s)
 ATTEMPT=0
 
 while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
@@ -243,24 +243,32 @@ done
 
 if [ -z "$TAILSCALE_IP" ]; then
   echo ""
-  log_warn "Could not get Tailscale IP after 3 minutes."
+  log_warn "Could not get Tailscale IP after 7 minutes."
   log_warn "Instance may still be initializing. Check manually:"
   log_warn "  ssh ubuntu@$PUBLIC_IP 'tailscale ip -4'"
   log_warn "  ssh ubuntu@$PUBLIC_IP 'sudo cat /var/log/user-data.log'"
+  log_warn ""
+  log_warn "NOT locking down SSH - you need to do it manually after getting Tailscale IP:"
+  log_warn "  aws ec2 revoke-security-group-ingress --group-name $SECURITY_GROUP_NAME --protocol tcp --port 22 --cidr 0.0.0.0/0 --region $REGION"
   TAILSCALE_IP="<pending - check manually>"
+  SSH_LOCKED=false
+else
+  SSH_LOCKED=true
 fi
 
 log_info "Tailscale IP: $TAILSCALE_IP"
 log_info ""
 
-# Lock down security group
-log_info "Locking down security group (removing public SSH)..."
-aws ec2 revoke-security-group-ingress \
-  --group-name "$SECURITY_GROUP_NAME" \
-  --protocol tcp --port 22 --cidr 0.0.0.0/0 \
-  --region "$REGION" 2>/dev/null || log_warn "SSH rule already removed or doesn't exist"
-success "Public SSH access removed. Access now via Tailscale only."
-log_info ""
+# Only lock down security group if we got Tailscale IP
+if [ "$SSH_LOCKED" = true ]; then
+  log_info "Locking down security group (removing public SSH)..."
+  aws ec2 revoke-security-group-ingress \
+    --group-name "$SECURITY_GROUP_NAME" \
+    --protocol tcp --port 22 --cidr 0.0.0.0/0 \
+    --region "$REGION" 2>/dev/null || log_warn "SSH rule already removed or doesn't exist"
+  success "Public SSH access removed. Access now via Tailscale only."
+  log_info ""
+fi
 
 echo ""
 echo "============================================================"

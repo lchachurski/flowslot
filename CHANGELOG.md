@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.3] - 2025-12-27
+
+### Fixed
+- Increased cloud-init wait time from 3 to 7 minutes (cloud-init takes 4-6 min)
+- SSH lockdown now conditional - only locks if Tailscale IP was obtained
+- Prevents inaccessible instances when cloud-init takes longer than expected
+
+### Changed
+- AWS_KEY_NAME environment variable now recommended for SSH key attachment
+
 ## [1.6.2] - 2025-12-27
 
 ### Documentation
