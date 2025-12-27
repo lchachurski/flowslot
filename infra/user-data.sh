@@ -6,9 +6,13 @@
 # - dnsmasq wildcard DNS configuration
 # - Idle-check script deployment
 #
-# Requires: TAILSCALE_AUTH_KEY environment variable (set in create-instance.sh)
+# The %%TAILSCALE_AUTH_KEY%% placeholder is replaced by create-instance.sh
 
 set -euo pipefail
+
+# Auth key - substituted by create-instance.sh before base64 encoding
+# Value will be "%%TAILSCALE_AUTH_KEY%%" if not substituted, or actual key if substituted
+TAILSCALE_AUTH_KEY="%%TAILSCALE_AUTH_KEY%%"
 
 # Log everything to cloud-init output
 exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
@@ -35,15 +39,30 @@ else
   echo "Tailscale already installed"
 fi
 
-# Authenticate Tailscale with auth key
+# Stop systemd-resolved first to free port 53, but use external DNS temporarily
+echo "Stopping systemd-resolved to free port 53..."
+systemctl stop systemd-resolved || true
+
+# Temporarily use external DNS for apt-get
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+echo "nameserver 1.1.1.1" >> /etc/resolv.conf
+
+# Install dnsmasq (will auto-start on port 53 now that it's free)
+echo "Installing dnsmasq..."
+apt-get update -qq
+apt-get install -y dnsmasq
+
+# Now authenticate Tailscale with auth key
 echo "Authenticating Tailscale..."
-if [ -z "${TAILSCALE_AUTH_KEY:-}" ]; then
-  echo "WARNING: TAILSCALE_AUTH_KEY not set. Tailscale will not auto-connect."
-  echo "Run 'sudo tailscale up' manually after instance starts."
-else
-  tailscale up --authkey="${TAILSCALE_AUTH_KEY}" --ssh --accept-routes || {
+# Check if the key looks like a valid Tailscale auth key (starts with tskey-)
+if [[ "$TAILSCALE_AUTH_KEY" == tskey-* ]]; then
+  echo "Using provided auth key..."
+  tailscale up --authkey="$TAILSCALE_AUTH_KEY" --ssh --accept-routes || {
     echo "WARNING: Tailscale authentication failed. Check auth key."
   }
+else
+  echo "WARNING: TAILSCALE_AUTH_KEY not set or invalid. Tailscale will not auto-connect."
+  echo "Run 'sudo tailscale up' manually after instance starts."
 fi
 
 # Wait for Tailscale to get an IP (up to 30 seconds)
@@ -62,21 +81,13 @@ if [ -z "${TS_IP:-}" ]; then
   TS_IP="100.0.0.0"  # Placeholder, will need manual fix
 fi
 
-# Disable systemd-resolved (port 53 conflict)
-echo "Disabling systemd-resolved..."
-systemctl stop systemd-resolved || true
+# Disable systemd-resolved permanently (already stopped above)
+echo "Disabling systemd-resolved permanently..."
 systemctl disable systemd-resolved || true
-if [ -L /etc/resolv.conf ]; then
-  rm /etc/resolv.conf
-fi
-if [ ! -f /etc/resolv.conf ]; then
-  echo "nameserver 127.0.0.1" > /etc/resolv.conf
-fi
 
-# Install dnsmasq
-echo "Installing dnsmasq..."
-apt-get update -qq
-apt-get install -y dnsmasq
+# Update resolv.conf to use dnsmasq (local)
+echo "Switching resolv.conf to use dnsmasq..."
+echo "nameserver 127.0.0.1" > /etc/resolv.conf
 
 # Write dnsmasq config with Tailscale IP
 echo "Configuring dnsmasq..."

@@ -142,11 +142,12 @@ if [ ! -f "$USER_DATA_FILE" ]; then
   die "user-data.sh not found at $USER_DATA_FILE"
 fi
 
-# Substitute TAILSCALE_AUTH_KEY in user-data and base64 encode
+# Substitute TAILSCALE_AUTH_KEY placeholder in user-data and base64 encode
+# Use %% as delimiter to avoid conflicts with / in keys
 if [ -n "$TAILSCALE_AUTH_KEY" ]; then
-  USER_DATA=$(sed "s/\${TAILSCALE_AUTH_KEY}/$TAILSCALE_AUTH_KEY/g" "$USER_DATA_FILE" | base64 -w0)
+  USER_DATA=$(sed "s|%%TAILSCALE_AUTH_KEY%%|$TAILSCALE_AUTH_KEY|g" "$USER_DATA_FILE" | base64 -w0)
 else
-  # Still pass user-data but without auth key substitution
+  # Still pass user-data but leave placeholder as-is (script will detect and warn)
   USER_DATA=$(cat "$USER_DATA_FILE" | base64 -w0)
 fi
 

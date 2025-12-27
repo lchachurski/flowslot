@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2025-12-27
+
+### Fixed
+- Tailscale auth key substitution in user-data script (was not being applied correctly)
+- dnsmasq installation order - now stops systemd-resolved before installing to avoid port 53 conflict
+- Uses external DNS temporarily during dnsmasq installation to ensure apt-get works
+
 ## [1.5.0] - 2025-12-27
 
 ### Added
@@ -89,7 +96,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-stop after 2 hours of inactivity
 - Tag-based versioning with `slot update` command
 
-[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/lchachurski/flowslot/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/lchachurski/flowslot/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/lchachurski/flowslot/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/lchachurski/flowslot/compare/v1.4.0...v1.4.1
