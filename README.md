@@ -97,9 +97,9 @@ Access each slot's services via wildcard DNS (recommended) or Tailscale IP:
 **Wildcard DNS (recommended):**
 | Slot | Web App | API | Database |
 |------|---------|-----|----------|
-| auth | `http://web.auth.thunder.flowslot:7101` | `http://api.auth.thunder.flowslot:7103` | `api.auth.thunder.flowslot:7104` |
-| feature | `http://web.feature.thunder.flowslot:7201` | `http://api.feature.thunder.flowslot:7203` | `api.feature.thunder.flowslot:7204` |
-| experiment | `http://web.experiment.thunder.flowslot:7301` | `http://api.experiment.thunder.flowslot:7303` | `api.experiment.thunder.flowslot:7304` |
+| auth | `http://web.auth.myapp.flowslot:7101` | `http://api.auth.myapp.flowslot:7103` | `db.auth.myapp.flowslot:7104` |
+| feature | `http://web.feature.myapp.flowslot:7201` | `http://api.feature.myapp.flowslot:7203` | `db.feature.myapp.flowslot:7204` |
+| experiment | `http://web.experiment.myapp.flowslot:7301` | `http://api.experiment.myapp.flowslot:7303` | `db.experiment.myapp.flowslot:7304` |
 
 **Tailscale IP (fallback):**
 | Slot | Web App | API | Database |
@@ -283,7 +283,7 @@ slot open my-feature main
 
 ## Commands
 
-**Note:** Commands with `<name>` require a slot name (e.g., `spider-seo`, `auth`, `feature`). Slot names must be lowercase alphanumeric with hyphens only.
+**Note:** Commands with `<name>` require a slot name (e.g., `feature-x`, `auth`, `feature`). Slot names must be lowercase alphanumeric with hyphens only.
 
 ### Slot Management
 
@@ -320,16 +320,16 @@ slot open my-feature main
 When working inside a slot directory, slot names are **auto-detected** from the current path:
 
 ```bash
-cd ~/myapp-slots/spider-seo
-slot info              # Auto-detects "spider-seo"
-slot compose ps        # Auto-detects "spider-seo"
-slot compose logs web  # Auto-detects "spider-seo"
+cd ~/myapp-slots/feature-x
+slot info              # Auto-detects "feature-x"
+slot compose ps        # Auto-detects "feature-x"
+slot compose logs web  # Auto-detects "feature-x"
 ```
 
 You can still specify the slot name explicitly to control a different slot:
 
 ```bash
-cd ~/myapp-slots/spider-seo
+cd ~/myapp-slots/feature-x
 slot info auth-fix     # Explicitly uses "auth-fix" instead
 ```
 
@@ -340,7 +340,7 @@ slot info auth-fix     # Explicitly uses "auth-fix" instead
 Get detailed information about a slot, including service URLs and container status:
 
 ```bash
-slot info spider-seo   # Explicit slot name
+slot info feature-x   # Explicit slot name
 slot info              # Auto-detected (if inside slot directory)
 ```
 
@@ -357,20 +357,20 @@ Use `slot compose` to run any docker compose command on the remote slot without 
 
 ```bash
 # From inside slot directory (auto-detected)
-cd ~/myapp-slots/spider-seo
+cd ~/myapp-slots/feature-x
 slot compose ps
 slot compose build --no-cache
 slot compose logs -f web
-slot compose exec thunder bash
+slot compose exec api bash
 
 # From anywhere (explicit slot name)
-slot compose spider-seo ps
-slot compose spider-seo build --no-cache
-slot compose spider-seo logs -f web
-slot compose spider-seo exec thunder bash
+slot compose feature-x ps
+slot compose feature-x build --no-cache
+slot compose feature-x logs -f web
+slot compose feature-x exec api bash
 ```
 
-**Why this is useful:** When developing in a slot directory (e.g., `~/myapp-slots/spider-seo/`), you often need to rebuild containers, check logs, or run migrations. Instead of manually SSHing and navigating to the remote directory, `slot compose` handles it all — just like running `docker compose` locally, but on the remote slot.
+**Why this is useful:** When developing in a slot directory (e.g., `~/myapp-slots/feature-x/`), you often need to rebuild containers, check logs, or run migrations. Instead of manually SSHing and navigating to the remote directory, `slot compose` handles it all — just like running `docker compose` locally, but on the remote slot.
 
 ---
 
@@ -386,24 +386,24 @@ Flowslot provides wildcard DNS resolution via dnsmasq on the EC2 instance, acces
 
 **Components:**
 - `{service}` - Service name (e.g., `web`, `api`, `draft--sitename`)
-- `{slot}` - Slot name (e.g., `spider-seo`, `auth`, `feature`)
-- `{project}` - Project name (e.g., `thunder`, `myapp`)
+- `{slot}` - Slot name (e.g., `feature-x`, `auth`, `feature`)
+- `{project}` - Project name (e.g., `myapp`, `webapp`)
 - `flowslot` - Reserved domain (configured via Tailscale Split DNS)
 - `{port}` - Port number (e.g., `7201`, `7203`)
 
 ### Examples
 
 ```
-http://web.spider-seo.thunder.flowslot:7201
-http://api.spider-seo.thunder.flowslot:7203
-http://draft--rugerexpo.spider-seo.thunder.flowslot:7212
+http://web.feature.myapp.flowslot:7201
+http://api.feature.myapp.flowslot:7203
+http://admin.feature.myapp.flowslot:7205
 ```
 
 ### How It Works
 
 1. **dnsmasq on EC2** resolves all `*.flowslot` queries to the EC2's Tailscale IP
 2. **Tailscale Split DNS** forwards `*.flowslot` queries from your devices to the EC2 instance
-3. **Your browser** resolves `web.spider-seo.thunder.flowslot` → EC2 Tailscale IP → connects to port 7201
+3. **Your browser** resolves `web.feature.myapp.flowslot` → EC2 Tailscale IP → connects to port 7201
 
 ### Benefits
 

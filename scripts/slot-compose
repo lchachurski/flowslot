@@ -25,7 +25,7 @@ Options:
   -h, --help              Show this help message
 
 Examples:
-  slot compose spider-seo ps
+  slot compose feature-x ps
   slot compose ps                    # Auto-detects slot name from current directory
   slot compose build --no-cache      # Auto-detects slot name
   slot compose logs -f web           # Auto-detects slot name

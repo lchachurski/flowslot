@@ -286,5 +286,5 @@ echo "1. Configure Tailscale Split DNS:"
 echo "   - Go to https://login.tailscale.com/admin/dns"
 echo "   - Add nameserver: ${TS_IP:-<tailscale-ip>}"
 echo "   - Restrict to domain: flowslot"
-echo "2. Test DNS: dig web.spider-seo.thunder.flowslot +short"
+echo "2. Test DNS: dig test.flowslot +short"
 

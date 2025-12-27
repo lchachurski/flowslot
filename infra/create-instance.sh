@@ -180,31 +180,79 @@ log_info "Instance ID: $INSTANCE_ID"
 log_info "Public IP: $PUBLIC_IP"
 log_info "Region: $REGION"
 log_info ""
-log_info "User-data script is running on the instance (cloud-init)."
-log_info "This will install Docker, Tailscale, dnsmasq, and idle-check automatically."
-log_info ""
-if [ -n "$TAILSCALE_AUTH_KEY" ]; then
-  log_info "Tailscale auth key provided - instance should auto-connect."
-  log_info "Check Tailscale IP with: aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[0].Instances[0].Tags[?Key==\`TailscaleIP\`].Value' --output text"
-else
-  log_info "Tailscale auth key NOT provided - manual setup required:"
-  log_info "  1. SSH: ssh ubuntu@$PUBLIC_IP"
-  log_info "  2. Run: sudo tailscale up"
-  log_info "  3. Follow the URL to authenticate"
+
+# Wait for cloud-init and Tailscale to complete
+log_info "Waiting for cloud-init to complete and Tailscale to connect..."
+log_info "(this takes 2-3 minutes)"
+echo ""
+
+TAILSCALE_IP=""
+MAX_ATTEMPTS=60  # 5 minutes max
+ATTEMPT=0
+
+while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+  ATTEMPT=$((ATTEMPT + 1))
+  
+  # Try to get Tailscale IP via SSH
+  TAILSCALE_IP=$(ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    "ubuntu@$PUBLIC_IP" "tailscale ip -4 2>/dev/null" 2>/dev/null || echo "")
+  
+  if [ -n "$TAILSCALE_IP" ]; then
+    break
+  fi
+  
+  # Show progress every 10 seconds
+  if [ $((ATTEMPT % 2)) -eq 0 ]; then
+    echo -n "."
+  fi
+  
+  sleep 5
+done
+echo ""
+
+if [ -z "$TAILSCALE_IP" ]; then
+  log_warn "Could not get Tailscale IP after 5 minutes."
+  log_warn "Check cloud-init logs: ssh ubuntu@$PUBLIC_IP 'sudo cat /var/log/user-data.log'"
+  TAILSCALE_IP="<run: ssh ubuntu@$PUBLIC_IP 'tailscale ip -4'>"
 fi
+
+log_info "Tailscale IP: $TAILSCALE_IP"
 log_info ""
-log_info "Next steps:"
-log_info "  1. Wait 2-3 minutes for cloud-init to complete"
-log_info "  2. Get Tailscale IP from instance or Tailscale admin console"
-log_info "  3. Configure Tailscale Split DNS:"
-log_info "     - Go to https://login.tailscale.com/admin/dns"
-log_info "     - Add nameserver: <tailscale-ip>"
-log_info "     - Restrict to domain: flowslot"
-log_info "  4. Lock down security group (remove public SSH):"
-log_info "     aws ec2 revoke-security-group-ingress \\"
-log_info "       --group-name $SECURITY_GROUP_NAME \\"
-log_info "       --protocol tcp --port 22 --cidr 0.0.0.0/0 \\"
-log_info "       --region $REGION"
+
+# Lock down security group
+log_info "Locking down security group (removing public SSH)..."
+aws ec2 revoke-security-group-ingress \
+  --group-name "$SECURITY_GROUP_NAME" \
+  --protocol tcp --port 22 --cidr 0.0.0.0/0 \
+  --region "$REGION" 2>/dev/null || log_warn "SSH rule already removed or doesn't exist"
+success "Public SSH access removed. Access now via Tailscale only."
 log_info ""
-log_info "View cloud-init logs:"
-log_info "  ssh ubuntu@$PUBLIC_IP 'sudo cat /var/log/user-data.log'"
+
+echo ""
+echo "============================================================"
+echo "  ACTION REQUIRED: Configure Tailscale Split DNS"
+echo "============================================================"
+echo ""
+echo "  1. Go to: https://login.tailscale.com/admin/dns"
+echo ""
+echo "  2. Under 'Nameservers', click 'Add nameserver' → 'Custom'"
+echo ""
+echo "  3. Enter these values:"
+echo "     ┌─────────────────────────────────────────────┐"
+echo "     │  Nameserver:  $TAILSCALE_IP"
+echo "     │  Restrict to: flowslot"
+echo "     └─────────────────────────────────────────────┘"
+echo ""
+echo "  4. Click 'Save'"
+echo ""
+echo "  5. Test DNS resolution:"
+echo "     dig test.flowslot +short"
+echo "     # Expected output: $TAILSCALE_IP"
+echo ""
+echo "  Without this, *.flowslot domains won't resolve!"
+echo "============================================================"
+echo ""
+echo "Update your project's .slotconfig with:"
+echo "  SLOT_REMOTE_HOST=\"ubuntu@$TAILSCALE_IP\""
+echo "  SLOT_AWS_INSTANCE_ID=\"$INSTANCE_ID\""
+echo ""

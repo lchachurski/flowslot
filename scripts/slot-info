@@ -24,7 +24,7 @@ Options:
   -h, --help    Show this help message
 
 Examples:
-  slot info spider-seo
+  slot info feature-x
   slot info                    # Auto-detects slot name from current directory
 EOF
 }
@@ -72,27 +72,12 @@ fi
 
 PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
 
-# Get Tailscale IP
-TAILSCALE_IP=$(ssh "$SLOT_REMOTE_HOST" "tailscale ip -4 2>/dev/null" | head -1 || echo "")
+# Build flowslot domain: {service}.{slot}.{project}.flowslot
+# This uses the wildcard DNS configured via dnsmasq on the EC2 instance
+FLOWSLOT_DOMAIN_BASE="${SLOT_NAME}.${SLOT_PROJECT_NAME}.flowslot"
 
-# Get Tailscale MagicDNS domain (prefer configured, then detect from tailscale)
-TAILSCALE_DOMAIN="${SLOT_REMOTE_DOMAIN:-}"
-if [ -z "$TAILSCALE_DOMAIN" ]; then
-  # Try to get DNSName from tailscale status JSON
-  TAILSCALE_DOMAIN=$(ssh "$SLOT_REMOTE_HOST" bash << 'REMOTE_DOMAIN'
-    # Try Python first (most reliable)
-    if command -v python3 >/dev/null 2>&1; then
-      tailscale status --json 2>/dev/null | python3 -c "import sys, json; data=json.load(sys.stdin); dns=data.get('Self', {}).get('DNSName', ''); print(dns.rstrip('.'))" 2>/dev/null || echo ""
-    # Fallback: use jq if available
-    elif command -v jq >/dev/null 2>&1; then
-      tailscale status --json 2>/dev/null | jq -r '.Self.DNSName // empty' 2>/dev/null | sed 's/\.$//' || echo ""
-    # Last resort: grep and extract
-    else
-      tailscale status --json 2>/dev/null | grep -o '"Self":{[^}]*"DNSName":"[^"]*"' | grep -o '"DNSName":"[^"]*"' | cut -d'"' -f4 | sed 's/\.$//' | head -1 || echo ""
-    fi
-REMOTE_DOMAIN
-)
-fi
+# Get Tailscale IP for fallback display
+TAILSCALE_IP=$(ssh "$SLOT_REMOTE_HOST" "tailscale ip -4 2>/dev/null" | head -1 || echo "")
 
 # Get branch name
 BRANCH=$(cd "$LOCAL_PATH" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
@@ -159,26 +144,30 @@ echo "  Slot #: $SLOT_NUM"
 echo "  Port Base: $PORT_BASE"
 echo ""
 
-# Display service URLs if ports are available
-if [ -n "${SLOT_PORT_WEB:-}" ] && [ -n "$TAILSCALE_DOMAIN" ]; then
-  echo "Service URLs:"
-  [ -n "${SLOT_PORT_WEB:-}" ] && echo "  Web:     http://$TAILSCALE_DOMAIN:${SLOT_PORT_WEB}"
-  [ -n "${SLOT_PORT_API:-}" ] && echo "  API:     http://$TAILSCALE_DOMAIN:${SLOT_PORT_API}"
-  [ -n "${SLOT_PORT_LANDING:-}" ] && echo "  Landing: http://$TAILSCALE_DOMAIN:${SLOT_PORT_LANDING}"
-  [ -n "${SLOT_PORT_SPIDER:-}" ] && echo "  Spider:  http://$TAILSCALE_DOMAIN:${SLOT_PORT_SPIDER}"
-  [ -n "${SLOT_PORT_CODER:-}" ] && echo "  Coder:   http://$TAILSCALE_DOMAIN:${SLOT_PORT_CODER}"
-  [ -n "${SLOT_PORT_HOSTING:-}" ] && echo "  Hosting: http://$TAILSCALE_DOMAIN:${SLOT_PORT_HOSTING}"
-  [ -n "${SLOT_PORT_DRAFT:-}" ] && echo "  Draft:   http://$TAILSCALE_DOMAIN:${SLOT_PORT_DRAFT}"
-  echo ""
-elif [ -n "$TAILSCALE_IP" ]; then
-  echo "Service URLs (IP):"
-  [ -n "${SLOT_PORT_WEB:-}" ] && echo "  Web:     http://$TAILSCALE_IP:${SLOT_PORT_WEB}"
-  [ -n "${SLOT_PORT_API:-}" ] && echo "  API:     http://$TAILSCALE_IP:${SLOT_PORT_API}"
-  [ -n "${SLOT_PORT_LANDING:-}" ] && echo "  Landing: http://$TAILSCALE_IP:${SLOT_PORT_LANDING}"
-  [ -n "${SLOT_PORT_SPIDER:-}" ] && echo "  Spider:  http://$TAILSCALE_IP:${SLOT_PORT_SPIDER}"
-  [ -n "${SLOT_PORT_CODER:-}" ] && echo "  Coder:   http://$TAILSCALE_IP:${SLOT_PORT_CODER}"
-  [ -n "${SLOT_PORT_HOSTING:-}" ] && echo "  Hosting: http://$TAILSCALE_IP:${SLOT_PORT_HOSTING}"
-  [ -n "${SLOT_PORT_DRAFT:-}" ] && echo "  Draft:   http://$TAILSCALE_IP:${SLOT_PORT_DRAFT}"
+# Display service URLs dynamically based on SLOT_PORT_* variables
+# Each SLOT_PORT_<SERVICE> variable becomes http://<service>.{slot}.{project}.flowslot:<port>
+echo "Service URLs:"
+HAS_URLS=false
+for var in $(compgen -v | grep '^SLOT_PORT_' | sort); do
+  port="${!var}"
+  if [ -n "$port" ]; then
+    # Extract service name: SLOT_PORT_WEB -> web
+    service=$(echo "$var" | sed 's/^SLOT_PORT_//' | tr '[:upper:]' '[:lower:]')
+    # Skip internal/non-HTTP ports
+    if [[ "$service" != "db" && "$service" != "base" ]]; then
+      printf "  %-10s http://%s.%s:%s\n" "${service}:" "${service}" "${FLOWSLOT_DOMAIN_BASE}" "${port}"
+      HAS_URLS=true
+    fi
+  fi
+done
+if [ "$HAS_URLS" = false ]; then
+  echo "  (no SLOT_PORT_* variables defined in flowslot-ports.sh)"
+fi
+echo ""
+
+# Show Tailscale IP for reference
+if [ -n "$TAILSCALE_IP" ]; then
+  echo "Tailscale IP: $TAILSCALE_IP (all domains resolve here)"
   echo ""
 fi
 

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2025-12-27
+
+### Changed
+- `slot info` now generates service URLs dynamically from `SLOT_PORT_*` variables (project-agnostic)
+- `create-instance.sh` now waits for Tailscale, auto-locks SSH, shows exact Split DNS steps with real IP
+- All examples in README and scripts are now generic (`myapp`, `feature-x`) - no project-specific references
+
+### Improved
+- Split DNS reminder now shows exact Tailscale IP and copy-paste ready `.slotconfig` values
+- Better UX: script waits for cloud-init completion before showing next steps
+
 ## [1.5.2] - 2025-12-27
 
 ### Fixed
@@ -52,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.4.1] - 2025-12-25
 
 ### Fixed
-- Tailscale MagicDNS domain detection in `slot info` - now shows domain instead of IP
+- Domain detection in `slot info` - now shows `.flowslot` domain URLs instead of IP
 - Install command now uses `latest` tag for easier installation
 
 ### Changed
