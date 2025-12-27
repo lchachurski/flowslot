@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2025-12-27
+
+### Added
+- Wildcard DNS support via dnsmasq (`*.flowslot` domain)
+- User Data (cloud-init) based EC2 setup for full reproducibility
+- URL pattern: `{service}.{slot}.{project}.flowslot:{port}`
+- Infrastructure as Code approach - all config files live in repo
+- Automatic Tailscale authentication via reusable auth key
+
+### Changed
+- EC2 infra refactored to Infrastructure as Code approach
+- All config files now live in repo (no manual SSH setup required)
+- Tailscale auth key used for automatic authentication (no manual `tailscale up`)
+- `create-instance.sh` now passes user-data script to EC2 for automatic bootstrap
+
+### Infrastructure
+- New: `infra/user-data.sh` - complete bootstrap script (Docker, Tailscale, dnsmasq, idle-check)
+- New: `infra/configs/` - dnsmasq and idle-check configs
+- Updated: `infra/create-instance.sh` - passes user-data to EC2, supports `TAILSCALE_AUTH_KEY` env var
+
 ## [1.4.2] - 2025-12-26
 
 ### Fixed
@@ -69,7 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-stop after 2 hours of inactivity
 - Tag-based versioning with `slot update` command
 
-[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/lchachurski/flowslot/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/lchachurski/flowslot/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/lchachurski/flowslot/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/lchachurski/flowslot/compare/v1.3.0...v1.4.0

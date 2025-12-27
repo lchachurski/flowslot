@@ -1,0 +1,21 @@
+# Flowslot wildcard DNS configuration
+# This file is deployed to /etc/dnsmasq.d/flowslot.conf on EC2
+# The ${TS_IP} placeholder is replaced with the Tailscale IP at runtime
+
+# Wildcard: *.flowslot -> Tailscale IP
+address=/flowslot/${TS_IP}
+
+# Listen on Tailscale and localhost
+listen-address=${TS_IP}
+listen-address=127.0.0.1
+
+# Don't read /etc/resolv.conf (avoid loops)
+no-resolv
+
+# Upstream DNS for other queries
+server=8.8.8.8
+server=1.1.1.1
+
+# Bind to specific interfaces only
+bind-interfaces
+

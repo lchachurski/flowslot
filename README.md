@@ -92,8 +92,16 @@ slot list
 # experiment  main           7300-7399   running
 ```
 
-Access each slot's services via Tailscale IP:
+Access each slot's services via wildcard DNS (recommended) or Tailscale IP:
 
+**Wildcard DNS (recommended):**
+| Slot | Web App | API | Database |
+|------|---------|-----|----------|
+| auth | `http://web.auth.thunder.flowslot:7101` | `http://api.auth.thunder.flowslot:7103` | `api.auth.thunder.flowslot:7104` |
+| feature | `http://web.feature.thunder.flowslot:7201` | `http://api.feature.thunder.flowslot:7203` | `api.feature.thunder.flowslot:7204` |
+| experiment | `http://web.experiment.thunder.flowslot:7301` | `http://api.experiment.thunder.flowslot:7303` | `api.experiment.thunder.flowslot:7304` |
+
+**Tailscale IP (fallback):**
 | Slot | Web App | API | Database |
 |------|---------|-----|----------|
 | auth | `http://100.x.y.z:7101` | `http://100.x.y.z:7103` | `100.x.y.z:7104` |
@@ -176,6 +184,20 @@ aws sso login
 aws sts get-caller-identity  # Verify
 ```
 
+#### Create Tailscale Auth Key (One-time)
+
+Before creating the instance, get a reusable Tailscale auth key:
+
+1. Go to https://login.tailscale.com/admin/settings/keys
+2. Create auth key with:
+   - **Reusable:** Yes
+   - **Expiry:** 90 days (or never for dev)
+   - **Tags:** `tag:flowslot` (optional)
+3. Export it:
+   ```bash
+   export TAILSCALE_AUTH_KEY=tskey-auth-xxx
+   ```
+
 #### Create EC2 Instance
 
 ```bash
@@ -186,6 +208,7 @@ cd ~/.flowslot/infra
 This creates:
 - Security group `flowslot-dev`
 - t4g.2xlarge ARM Spot instance (8 vCPU, 32GB RAM, 100GB disk)
+- **Automatically installs:** Docker, Tailscale, dnsmasq, idle-check script
 - Outputs instance ID and public IP
 
 **Note:** The script uses Ubuntu 22.04 ARM64 AMI for eu-central-1. For other regions, update `AMI_ID` in `create-instance.sh`:
@@ -198,19 +221,47 @@ aws ec2 describe-images \
   --region YOUR_REGION
 ```
 
-#### Setup Remote Instance
+**What happens:** The instance runs a user-data script (cloud-init) that:
+- Installs Docker and adds `ubuntu` user to docker group
+- Installs Tailscale and authenticates with your auth key
+- Configures dnsmasq for wildcard DNS (`*.flowslot`)
+- Deploys the idle-check script and cron job
+- Creates `/srv` directory for slots
 
+Wait 2-3 minutes for cloud-init to complete. View logs:
 ```bash
-./setup-remote.sh <public-ip>
+ssh ubuntu@<public-ip> 'sudo cat /var/log/user-data.log'
 ```
 
-This installs Docker, Tailscale, and the idle-check script.
+#### Configure Tailscale Split DNS (One-time)
 
-**After the script completes**, authenticate Tailscale manually:
+After the instance is running and Tailscale is connected:
+
+1. Get the Tailscale IP from the instance or Tailscale admin console
+2. Go to https://login.tailscale.com/admin/dns
+3. In the **Nameservers** section, add:
+   - **Custom nameserver:** `<tailscale-ip>` (e.g., `100.98.3.125`)
+   - **Restrict to domain:** `flowslot`
+4. Save
+
+This enables wildcard DNS resolution for `*.flowslot` from all your Tailscale devices.
+
+#### Lock Down Security Group
+
+After Tailscale is working, remove public SSH access:
+
+```bash
+aws ec2 revoke-security-group-ingress \
+  --group-name flowslot-dev \
+  --protocol tcp --port 22 --cidr 0.0.0.0/0 \
+  --region eu-central-1
+```
+
+**Note:** If you didn't provide `TAILSCALE_AUTH_KEY`, you'll need to manually authenticate Tailscale:
 ```bash
 ssh ubuntu@<public-ip> "sudo tailscale up"
 ```
-Follow the URL to authenticate. Once connected, run `setup-remote.sh` again — it will automatically lock down the security group (remove public SSH access).
+Follow the URL to authenticate, then configure Split DNS and lock down the security group.
 
 ### 4. Initialize Your Project
 
@@ -323,6 +374,50 @@ slot compose spider-seo exec thunder bash
 
 ---
 
+## Wildcard DNS
+
+Flowslot provides wildcard DNS resolution via dnsmasq on the EC2 instance, accessible through Tailscale Split DNS. This enables human-readable URLs instead of raw IP addresses.
+
+### URL Pattern
+
+```
+{service}.{slot}.{project}.flowslot:{port}
+```
+
+**Components:**
+- `{service}` - Service name (e.g., `web`, `api`, `draft--sitename`)
+- `{slot}` - Slot name (e.g., `spider-seo`, `auth`, `feature`)
+- `{project}` - Project name (e.g., `thunder`, `myapp`)
+- `flowslot` - Reserved domain (configured via Tailscale Split DNS)
+- `{port}` - Port number (e.g., `7201`, `7203`)
+
+### Examples
+
+```
+http://web.spider-seo.thunder.flowslot:7201
+http://api.spider-seo.thunder.flowslot:7203
+http://draft--rugerexpo.spider-seo.thunder.flowslot:7212
+```
+
+### How It Works
+
+1. **dnsmasq on EC2** resolves all `*.flowslot` queries to the EC2's Tailscale IP
+2. **Tailscale Split DNS** forwards `*.flowslot` queries from your devices to the EC2 instance
+3. **Your browser** resolves `web.spider-seo.thunder.flowslot` → EC2 Tailscale IP → connects to port 7201
+
+### Benefits
+
+- **AI/LLM Testing:** AI assistants can use proper URLs instead of IPs
+- **OAuth Redirects:** Services like Google OAuth can whitelist domains instead of IPs
+- **Readability:** Easier to remember and share URLs
+- **Multi-project:** Each project gets its own subdomain namespace
+
+### Configuration
+
+Wildcard DNS is automatically configured when you create a new EC2 instance via `create-instance.sh`. See [Server Setup](#3-server-setup-one-time) for Tailscale Split DNS configuration.
+
+---
+
 ## How It Works
 
 ### Directory Structure
@@ -361,6 +456,7 @@ On the remote server, each slot is a directory at `/srv/myapp/<slot-name>/` cont
 | **Mutagen Sync** | Real-time bidirectional file sync (~100ms latency) | Save locally, see changes on remote instantly |
 | **Dynamic Ports** | Slot 1: 7100-7199, Slot 2: 7200-7299, etc. | Run multiple stacks without port conflicts |
 | **Tailscale** | Private mesh network (100.x.y.z addresses) | Access remote services securely, no public ports |
+| **dnsmasq** | Wildcard DNS resolver (`*.flowslot`) | Human-readable URLs for services |
 | **Docker Compose** | Your existing setup with port overrides | Same containers, just isolated per slot |
 
 ---

@@ -28,6 +28,7 @@ readonly AMI_ID="ami-01099d45fb386e13b"  # Ubuntu 22.04 LTS arm64 (eu-central-1)
 readonly SECURITY_GROUP_NAME="flowslot-dev"
 readonly VOLUME_SIZE_GB=100
 readonly KEY_NAME="${AWS_KEY_NAME:-}"  # Set your key name or leave empty
+readonly TAILSCALE_AUTH_KEY="${TAILSCALE_AUTH_KEY:-}"  # Tailscale reusable auth key
 
 show_help() {
   cat << 'EOF'
@@ -40,8 +41,9 @@ Prerequisites:
   - Run 'aws sso login' first
 
 Environment variables:
-  AWS_REGION     Region to create instance in (default: eu-central-1)
-  AWS_KEY_NAME   SSH key pair name (optional)
+  AWS_REGION          Region to create instance in (default: eu-central-1)
+  AWS_KEY_NAME        SSH key pair name (optional)
+  TAILSCALE_AUTH_KEY  Tailscale reusable auth key (required for auto-setup)
 
 Options:
   -h, --help     Show this help message
@@ -56,8 +58,16 @@ fi
 
 require_cmd aws
 require_cmd jq
+require_cmd base64
 
 log_info "Creating EC2 Spot instance in $REGION..."
+
+# Check for Tailscale auth key
+if [ -z "$TAILSCALE_AUTH_KEY" ]; then
+  log_warn "TAILSCALE_AUTH_KEY not set. Instance will be created but Tailscale won't auto-connect."
+  log_warn "Get a reusable auth key from: https://login.tailscale.com/admin/settings/keys"
+  log_warn "Then run: export TAILSCALE_AUTH_KEY=tskey-auth-xxx"
+fi
 
 # Check AWS authentication
 if ! aws sts get-caller-identity >/dev/null 2>&1; then
@@ -126,6 +136,23 @@ if [ -n "$KEY_NAME" ]; then
   LAUNCH_SPEC=$(echo "$LAUNCH_SPEC" | jq --arg key "$KEY_NAME" '. + {KeyName: $key}')
 fi
 
+# Prepare user-data script
+USER_DATA_FILE="$SCRIPT_DIR/user-data.sh"
+if [ ! -f "$USER_DATA_FILE" ]; then
+  die "user-data.sh not found at $USER_DATA_FILE"
+fi
+
+# Substitute TAILSCALE_AUTH_KEY in user-data and base64 encode
+if [ -n "$TAILSCALE_AUTH_KEY" ]; then
+  USER_DATA=$(sed "s/\${TAILSCALE_AUTH_KEY}/$TAILSCALE_AUTH_KEY/g" "$USER_DATA_FILE" | base64 -w0)
+else
+  # Still pass user-data but without auth key substitution
+  USER_DATA=$(cat "$USER_DATA_FILE" | base64 -w0)
+fi
+
+# Add user-data to launch spec
+LAUNCH_SPEC=$(echo "$LAUNCH_SPEC" | jq --arg ud "$USER_DATA" '. + {UserData: $ud}')
+
 INSTANCE_ID=$(aws ec2 run-instances \
   --cli-input-json "$LAUNCH_SPEC" \
   --instance-market-options '{"MarketType":"spot","SpotOptions":{"SpotInstanceType":"persistent","InstanceInterruptionBehavior":"stop"}}' \
@@ -152,10 +179,31 @@ log_info "Instance ID: $INSTANCE_ID"
 log_info "Public IP: $PUBLIC_IP"
 log_info "Region: $REGION"
 log_info ""
+log_info "User-data script is running on the instance (cloud-init)."
+log_info "This will install Docker, Tailscale, dnsmasq, and idle-check automatically."
+log_info ""
+if [ -n "$TAILSCALE_AUTH_KEY" ]; then
+  log_info "Tailscale auth key provided - instance should auto-connect."
+  log_info "Check Tailscale IP with: aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[0].Instances[0].Tags[?Key==\`TailscaleIP\`].Value' --output text"
+else
+  log_info "Tailscale auth key NOT provided - manual setup required:"
+  log_info "  1. SSH: ssh ubuntu@$PUBLIC_IP"
+  log_info "  2. Run: sudo tailscale up"
+  log_info "  3. Follow the URL to authenticate"
+fi
+log_info ""
 log_info "Next steps:"
-log_info "  1. Run: ./setup-remote.sh $PUBLIC_IP"
-log_info "  2. After Tailscale is configured, lock down security group:"
+log_info "  1. Wait 2-3 minutes for cloud-init to complete"
+log_info "  2. Get Tailscale IP from instance or Tailscale admin console"
+log_info "  3. Configure Tailscale Split DNS:"
+log_info "     - Go to https://login.tailscale.com/admin/dns"
+log_info "     - Add nameserver: <tailscale-ip>"
+log_info "     - Restrict to domain: flowslot"
+log_info "  4. Lock down security group (remove public SSH):"
 log_info "     aws ec2 revoke-security-group-ingress \\"
 log_info "       --group-name $SECURITY_GROUP_NAME \\"
 log_info "       --protocol tcp --port 22 --cidr 0.0.0.0/0 \\"
 log_info "       --region $REGION"
+log_info ""
+log_info "View cloud-init logs:"
+log_info "  ssh ubuntu@$PUBLIC_IP 'sudo cat /var/log/user-data.log'"
