@@ -7,6 +7,32 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/../scripts/lib"
 
+# --- Lockfile to prevent multiple instances ---
+LOCKFILE="/tmp/flowslot-create-instance.lock"
+
+acquire_lock() {
+  if [ -f "$LOCKFILE" ]; then
+    EXISTING_PID=$(cat "$LOCKFILE" 2>/dev/null || echo "")
+    if [ -n "$EXISTING_PID" ] && kill -0 "$EXISTING_PID" 2>/dev/null; then
+      echo "[ERROR] Another create-instance process is running (PID: $EXISTING_PID)" >&2
+      echo "[ERROR] If this is stale, remove: $LOCKFILE" >&2
+      exit 1
+    else
+      # Stale lockfile - remove it
+      rm -f "$LOCKFILE"
+    fi
+  fi
+  echo $$ > "$LOCKFILE"
+}
+
+release_lock() {
+  rm -f "$LOCKFILE"
+}
+
+# Acquire lock and setup cleanup on exit
+acquire_lock
+trap release_lock EXIT INT TERM
+
 # Source common functions if available
 if [ -f "$LIB_DIR/common.sh" ]; then
   # shellcheck source=../scripts/lib/common.sh
@@ -47,6 +73,11 @@ Environment variables:
 
 Options:
   -h, --help     Show this help message
+
+Notes:
+  - Only one instance can be created at a time (lockfile: /tmp/flowslot-create-instance.lock)
+  - Script waits up to 3 minutes for Tailscale to connect
+  - If lockfile is stale, remove it manually
 EOF
 }
 
@@ -183,21 +214,22 @@ log_info ""
 
 # Wait for cloud-init and Tailscale to complete
 log_info "Waiting for cloud-init to complete and Tailscale to connect..."
-log_info "(this takes 2-3 minutes)"
+log_info "(this takes 2-3 minutes, max wait: 3 minutes)"
 echo ""
 
 TAILSCALE_IP=""
-MAX_ATTEMPTS=60  # 5 minutes max
+MAX_ATTEMPTS=36  # 3 minutes max (36 * 5s = 180s)
 ATTEMPT=0
 
 while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
   ATTEMPT=$((ATTEMPT + 1))
   
   # Try to get Tailscale IP via SSH
-  TAILSCALE_IP=$(ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-    "ubuntu@$PUBLIC_IP" "tailscale ip -4 2>/dev/null" 2>/dev/null || echo "")
+  TAILSCALE_IP=$(ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o BatchMode=yes "ubuntu@$PUBLIC_IP" "tailscale ip -4 2>/dev/null" 2>/dev/null || echo "")
   
   if [ -n "$TAILSCALE_IP" ]; then
+    echo ""
     break
   fi
   
@@ -208,12 +240,14 @@ while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
   
   sleep 5
 done
-echo ""
 
 if [ -z "$TAILSCALE_IP" ]; then
-  log_warn "Could not get Tailscale IP after 5 minutes."
-  log_warn "Check cloud-init logs: ssh ubuntu@$PUBLIC_IP 'sudo cat /var/log/user-data.log'"
-  TAILSCALE_IP="<run: ssh ubuntu@$PUBLIC_IP 'tailscale ip -4'>"
+  echo ""
+  log_warn "Could not get Tailscale IP after 3 minutes."
+  log_warn "Instance may still be initializing. Check manually:"
+  log_warn "  ssh ubuntu@$PUBLIC_IP 'tailscale ip -4'"
+  log_warn "  ssh ubuntu@$PUBLIC_IP 'sudo cat /var/log/user-data.log'"
+  TAILSCALE_IP="<pending - check manually>"
 fi
 
 log_info "Tailscale IP: $TAILSCALE_IP"

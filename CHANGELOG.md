@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2025-12-27
+
+### Added
+- Lockfile protection to prevent multiple `create-instance.sh` processes running simultaneously
+- Reduced Tailscale wait timeout from 5 minutes to 3 minutes
+
+### Fixed
+- SSH connection timeout reduced for faster polling
+- Added BatchMode to SSH to prevent hanging on prompts
+
 ## [1.6.0] - 2025-12-27
 
 ### Changed
