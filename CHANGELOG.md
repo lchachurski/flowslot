@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.2] - 2025-12-27
+
+### Documentation
+- Added safety features section to README (lockfile, timeouts, auto-lockdown)
+
 ## [1.6.1] - 2025-12-27
 
 ### Added

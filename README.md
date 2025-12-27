@@ -209,7 +209,12 @@ This creates:
 - Security group `flowslot-dev`
 - t4g.2xlarge ARM Spot instance (8 vCPU, 32GB RAM, 100GB disk)
 - **Automatically installs:** Docker, Tailscale, dnsmasq, idle-check script
-- Outputs instance ID and public IP
+- Outputs instance ID and Tailscale IP for Split DNS setup
+
+**Safety features:**
+- Lockfile prevents multiple instances from being created simultaneously
+- Script waits up to 3 minutes for Tailscale to connect
+- Automatically locks down public SSH after Tailscale is ready
 
 **Note:** The script uses Ubuntu 22.04 ARM64 AMI for eu-central-1. For other regions, update `AMI_ID` in `create-instance.sh`:
 ```bash
