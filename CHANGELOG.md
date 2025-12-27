@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2025-12-27
+
+### Fixed
+- Removed `--ssh` flag from Tailscale setup - Tailscale SSH requires browser auth which breaks Mutagen
+- Fixed resolv.conf being overwritten by systemd-resolved symlink
+- Added hostname to /etc/hosts to fix "unable to resolve host" sudo warnings
+
+### Changed
+- Regular SSH over Tailscale now used instead of Tailscale SSH (still secure, works with Mutagen)
+
 ## [1.5.1] - 2025-12-27
 
 ### Fixed
@@ -96,7 +106,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-stop after 2 hours of inactivity
 - Tag-based versioning with `slot update` command
 
-[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.5.2...HEAD
+[1.5.2]: https://github.com/lchachurski/flowslot/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/lchachurski/flowslot/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/lchachurski/flowslot/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/lchachurski/flowslot/compare/v1.4.1...v1.4.2

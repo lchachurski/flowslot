@@ -53,11 +53,14 @@ apt-get update -qq
 apt-get install -y dnsmasq
 
 # Now authenticate Tailscale with auth key
+# Note: We do NOT use --ssh flag because it enables Tailscale SSH which requires
+# browser auth for each session, breaking Mutagen and automated tools.
+# Regular SSH over Tailscale works fine without it.
 echo "Authenticating Tailscale..."
 # Check if the key looks like a valid Tailscale auth key (starts with tskey-)
 if [[ "$TAILSCALE_AUTH_KEY" == tskey-* ]]; then
   echo "Using provided auth key..."
-  tailscale up --authkey="$TAILSCALE_AUTH_KEY" --ssh --accept-routes || {
+  tailscale up --authkey="$TAILSCALE_AUTH_KEY" --accept-routes || {
     echo "WARNING: Tailscale authentication failed. Check auth key."
   }
 else
@@ -85,8 +88,17 @@ fi
 echo "Disabling systemd-resolved permanently..."
 systemctl disable systemd-resolved || true
 
+# Add hostname to /etc/hosts to fix "unable to resolve host" warnings
+echo "Adding hostname to /etc/hosts..."
+HOSTNAME=$(hostname)
+if ! grep -q "$HOSTNAME" /etc/hosts; then
+  echo "127.0.0.1 $HOSTNAME" >> /etc/hosts
+fi
+
 # Update resolv.conf to use dnsmasq (local)
+# Remove any symlink and create a regular file
 echo "Switching resolv.conf to use dnsmasq..."
+rm -f /etc/resolv.conf
 echo "nameserver 127.0.0.1" > /etc/resolv.conf
 
 # Write dnsmasq config with Tailscale IP
