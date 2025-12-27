@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.4] - 2025-12-27
+
+### Fixed
+- Idle-check script no longer detects false positives from auth.log modifications
+- Removed auth.log modification check - now only checks for active SSH sessions using `who`
+- Prevents systemd-logind and other system processes from resetting idle timer
+
 ## [1.6.3] - 2025-12-27
 
 ### Fixed
