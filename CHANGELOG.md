@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.5] - 2025-12-27
+
+### Changed
+- Domain changed from fake TLD `.flowslot` to real domain `flowslot.dev`
+- URL pattern now: `{service}.{slot}.{project}.flowslot.dev:{port}`
+- All documentation and configs updated to use `flowslot.dev`
+- Google OAuth now works with proper public TLD
+
+### Fixed
+- OAuth compatibility - `.flowslot` was rejected by Google as invalid TLD
+
 ## [1.6.4] - 2025-12-27
 
 ### Fixed
@@ -70,9 +81,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.5.0] - 2025-12-27
 
 ### Added
-- Wildcard DNS support via dnsmasq (`*.flowslot` domain)
+- Wildcard DNS support via dnsmasq (`*.flowslot.dev` domain)
 - User Data (cloud-init) based EC2 setup for full reproducibility
-- URL pattern: `{service}.{slot}.{project}.flowslot:{port}`
+- URL pattern: `{service}.{slot}.{project}.flowslot.dev:{port}`
 - Infrastructure as Code approach - all config files live in repo
 - Automatic Tailscale authentication via reusable auth key
 
@@ -95,7 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.4.1] - 2025-12-25
 
 ### Fixed
-- Domain detection in `slot info` - now shows `.flowslot` domain URLs instead of IP
+- Domain detection in `slot info` - now shows `flowslot.dev` domain URLs instead of IP
 - Install command now uses `latest` tag for easier installation
 
 ### Changed
@@ -149,7 +160,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-stop after 2 hours of inactivity
 - Tag-based versioning with `slot update` command
 
-[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.5.2...HEAD
+[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.6.5...HEAD
+[1.6.5]: https://github.com/lchachurski/flowslot/compare/v1.6.4...v1.6.5
+[1.6.4]: https://github.com/lchachurski/flowslot/compare/v1.6.3...v1.6.4
+[1.6.3]: https://github.com/lchachurski/flowslot/compare/v1.6.2...v1.6.3
+[1.6.2]: https://github.com/lchachurski/flowslot/compare/v1.6.1...v1.6.2
+[1.6.1]: https://github.com/lchachurski/flowslot/compare/v1.6.0...v1.6.1
+[1.6.0]: https://github.com/lchachurski/flowslot/compare/v1.5.2...v1.6.0
 [1.5.2]: https://github.com/lchachurski/flowslot/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/lchachurski/flowslot/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/lchachurski/flowslot/compare/v1.4.2...v1.5.0

@@ -99,9 +99,9 @@ Access each slot's services via wildcard DNS (recommended) or Tailscale IP:
 **Wildcard DNS (recommended):**
 | Slot | Web App | API | Database |
 |------|---------|-----|----------|
-| auth | `http://web.auth.myapp.flowslot:7101` | `http://api.auth.myapp.flowslot:7103` | `db.auth.myapp.flowslot:7104` |
-| feature | `http://web.feature.myapp.flowslot:7201` | `http://api.feature.myapp.flowslot:7203` | `db.feature.myapp.flowslot:7204` |
-| experiment | `http://web.experiment.myapp.flowslot:7301` | `http://api.experiment.myapp.flowslot:7303` | `db.experiment.myapp.flowslot:7304` |
+| auth | `http://web.auth.myapp.flowslot.dev:7101` | `http://api.auth.myapp.flowslot.dev:7103` | `db.auth.myapp.flowslot.dev:7104` |
+| feature | `http://web.feature.myapp.flowslot.dev:7201` | `http://api.feature.myapp.flowslot.dev:7203` | `db.feature.myapp.flowslot.dev:7204` |
+| experiment | `http://web.experiment.myapp.flowslot.dev:7301` | `http://api.experiment.myapp.flowslot.dev:7303` | `db.experiment.myapp.flowslot.dev:7304` |
 
 **Tailscale IP (fallback):**
 | Slot | Web App | API | Database |
@@ -231,7 +231,7 @@ aws ec2 describe-images \
 **What happens:** The instance runs a user-data script (cloud-init) that:
 - Installs Docker and adds `ubuntu` user to docker group
 - Installs Tailscale and authenticates with your auth key
-- Configures dnsmasq for wildcard DNS (`*.flowslot`)
+- Configures dnsmasq for wildcard DNS (`*.flowslot.dev`)
 - Deploys the idle-check script and cron job
 - Creates `/srv` directory for slots
 
@@ -248,10 +248,10 @@ After the instance is running and Tailscale is connected:
 2. Go to https://login.tailscale.com/admin/dns
 3. In the **Nameservers** section, add:
    - **Custom nameserver:** `<tailscale-ip>` (e.g., `100.98.3.125`)
-   - **Restrict to domain:** `flowslot`
+   - **Restrict to domain:** `flowslot.dev`
 4. Save
 
-This enables wildcard DNS resolution for `*.flowslot` from all your Tailscale devices.
+This enables wildcard DNS resolution for `*.flowslot.dev` from all your Tailscale devices.
 
 #### Lock Down Security Group
 
@@ -388,29 +388,29 @@ Flowslot provides wildcard DNS resolution via dnsmasq on the EC2 instance, acces
 ### URL Pattern
 
 ```
-{service}.{slot}.{project}.flowslot:{port}
+{service}.{slot}.{project}.flowslot.dev:{port}
 ```
 
 **Components:**
 - `{service}` - Service name (e.g., `web`, `api`, `draft--sitename`)
 - `{slot}` - Slot name (e.g., `feature-x`, `auth`, `feature`)
 - `{project}` - Project name (e.g., `myapp`, `webapp`)
-- `flowslot` - Reserved domain (configured via Tailscale Split DNS)
+- `flowslot.dev` - Reserved domain (configured via Tailscale Split DNS)
 - `{port}` - Port number (e.g., `7201`, `7203`)
 
 ### Examples
 
 ```
-http://web.feature.myapp.flowslot:7201
-http://api.feature.myapp.flowslot:7203
-http://admin.feature.myapp.flowslot:7205
+http://web.feature.myapp.flowslot.dev:7201
+http://api.feature.myapp.flowslot.dev:7203
+http://admin.feature.myapp.flowslot.dev:7205
 ```
 
 ### How It Works
 
-1. **dnsmasq on EC2** resolves all `*.flowslot` queries to the EC2's Tailscale IP
-2. **Tailscale Split DNS** forwards `*.flowslot` queries from your devices to the EC2 instance
-3. **Your browser** resolves `web.feature.myapp.flowslot` → EC2 Tailscale IP → connects to port 7201
+1. **dnsmasq on EC2** resolves all `*.flowslot.dev` queries to the EC2's Tailscale IP
+2. **Tailscale Split DNS** forwards `*.flowslot.dev` queries from your devices to the EC2 instance
+3. **Your browser** resolves `web.feature.myapp.flowslot.dev` → EC2 Tailscale IP → connects to port 7201
 
 ### Benefits
 
@@ -463,7 +463,7 @@ On the remote server, each slot is a directory at `/srv/myapp/<slot-name>/` cont
 | **Mutagen Sync** | Real-time bidirectional file sync (~100ms latency) | Save locally, see changes on remote instantly |
 | **Dynamic Ports** | Slot 1: 7100-7199, Slot 2: 7200-7299, etc. | Run multiple stacks without port conflicts |
 | **Tailscale** | Private mesh network (100.x.y.z addresses) | Access remote services securely, no public ports |
-| **dnsmasq** | Wildcard DNS resolver (`*.flowslot`) | Human-readable URLs for services |
+| **dnsmasq** | Wildcard DNS resolver (`*.flowslot.dev`) | Human-readable URLs for services |
 | **Docker Compose** | Your existing setup with port overrides | Same containers, just isolated per slot |
 
 ---

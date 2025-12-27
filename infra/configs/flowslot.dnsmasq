@@ -2,8 +2,9 @@
 # This file is deployed to /etc/dnsmasq.d/flowslot.conf on EC2
 # The ${TS_IP} placeholder is replaced with the Tailscale IP at runtime
 
-# Wildcard: *.flowslot -> Tailscale IP
-address=/flowslot/${TS_IP}
+# Wildcard: *.flowslot.dev -> Tailscale IP
+# Pattern: {service}.{slot}.{project}.flowslot.dev
+address=/flowslot.dev/${TS_IP}
 
 # Listen on Tailscale and localhost
 listen-address=${TS_IP}

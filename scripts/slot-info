@@ -72,9 +72,9 @@ fi
 
 PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
 
-# Build flowslot domain: {service}.{slot}.{project}.flowslot
+# Build flowslot domain: {service}.{slot}.{project}.flowslot.dev
 # This uses the wildcard DNS configured via dnsmasq on the EC2 instance
-FLOWSLOT_DOMAIN_BASE="${SLOT_NAME}.${SLOT_PROJECT_NAME}.flowslot"
+FLOWSLOT_DOMAIN_BASE="${SLOT_NAME}.${SLOT_PROJECT_NAME}.flowslot.dev"
 
 # Get Tailscale IP for fallback display
 TAILSCALE_IP=$(ssh "$SLOT_REMOTE_HOST" "tailscale ip -4 2>/dev/null" | head -1 || echo "")
@@ -145,7 +145,7 @@ echo "  Port Base: $PORT_BASE"
 echo ""
 
 # Display service URLs dynamically based on SLOT_PORT_* variables
-# Each SLOT_PORT_<SERVICE> variable becomes http://<service>.{slot}.{project}.flowslot:<port>
+# Each SLOT_PORT_<SERVICE> variable becomes http://<service>.{slot}.{project}.flowslot.dev:<port>
 echo "Service URLs:"
 HAS_URLS=false
 for var in $(compgen -v | grep '^SLOT_PORT_' | sort); do

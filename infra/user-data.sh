@@ -105,8 +105,9 @@ echo "nameserver 127.0.0.1" > /etc/resolv.conf
 echo "Configuring dnsmasq..."
 cat > /etc/dnsmasq.d/flowslot.conf << EOF
 # Flowslot wildcard DNS configuration
-# Wildcard: *.flowslot -> Tailscale IP
-address=/flowslot/${TS_IP}
+# Wildcard: *.flowslot.dev -> Tailscale IP
+# Pattern: {service}.{slot}.{project}.flowslot.dev
+address=/flowslot.dev/${TS_IP}
 
 # Listen on Tailscale and localhost
 listen-address=${TS_IP}
@@ -273,12 +274,12 @@ date
 # Output Tailscale IP for reference
 echo ""
 echo "Tailscale IP: ${TS_IP:-not available}"
-echo "dnsmasq configured for *.flowslot -> ${TS_IP:-not available}"
+echo "dnsmasq configured for *.flowslot.dev -> ${TS_IP:-not available}"
 echo ""
 echo "Next steps:"
 echo "1. Configure Tailscale Split DNS:"
 echo "   - Go to https://login.tailscale.com/admin/dns"
 echo "   - Add nameserver: ${TS_IP:-<tailscale-ip>}"
-echo "   - Restrict to domain: flowslot"
-echo "2. Test DNS: dig test.flowslot +short"
+echo "   - Restrict to domain: flowslot.dev"
+echo "2. Test DNS: dig test.flowslot.dev +short"
 
