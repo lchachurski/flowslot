@@ -94,8 +94,25 @@ fi
 # Update remote if requested (config already loaded above)
 if [ "$UPDATE_REMOTE" = true ]; then
   log_info "Updating remote scripts on $SLOT_REMOTE_HOST..."
-  scp "$FLOWSLOT_DIR/infra/idle-check.sh" \
-      "$SLOT_REMOTE_HOST:/tmp/flowslot-idle-check"
+  
+  # Extract idle-check script from user-data.sh and deploy it
+  USER_DATA_FILE="$FLOWSLOT_DIR/infra/user-data.sh"
+  if [ ! -f "$USER_DATA_FILE" ]; then
+    die "user-data.sh not found at $USER_DATA_FILE"
+  fi
+  
+  # Extract the idle-check script (between 'cat > ... <<' and 'IDLE_SCRIPT')
+  TEMP_SCRIPT=$(mktemp)
+  awk '/cat > \/usr\/local\/bin\/flowslot-idle-check << '\''IDLE_SCRIPT'\''/,/^IDLE_SCRIPT$/ {
+    if (/^IDLE_SCRIPT$/) exit
+    if (/cat > \/usr\/local\/bin\/flowslot-idle-check/) next
+    print
+  }' "$USER_DATA_FILE" > "$TEMP_SCRIPT"
+  
+  # Deploy to remote
+  scp "$TEMP_SCRIPT" "$SLOT_REMOTE_HOST:/tmp/flowslot-idle-check"
   ssh "$SLOT_REMOTE_HOST" "sudo mv /tmp/flowslot-idle-check /usr/local/bin/flowslot-idle-check && sudo chmod +x /usr/local/bin/flowslot-idle-check"
+  rm -f "$TEMP_SCRIPT"
+  
   success "Remote scripts updated"
 fi
