@@ -395,8 +395,15 @@ Two patterns are available — both work with the dnsmasq wildcard:
 | **Extended** | `{service}.{slot}.{project}.flowslot.dev:{port}` | `http://web.feature.myapp.flowslot.dev:7201` |
 
 **When to use which:**
-- **Simple:** Shorter URLs, easier OAuth whitelisting (port identifies slot)
-- **Extended:** Separate browser history per slot, more descriptive URLs
+
+| Pattern | Best for | Why |
+|---------|----------|-----|
+| **Simple** | OAuth, 3rd-party integrations | Whitelist once (e.g., `web.myapp.flowslot.dev`), works for all slots — port changes, domain stays same |
+| **Extended** | Multi-tenant apps, clean URLs | When subdomain is part of your product (e.g., `tenant.myapp.com`), or you want fully distinct URLs per slot |
+
+**Example:** Google OAuth requires whitelisting redirect URIs.
+- With **simple**, add URIs like `http://web.myapp.flowslot.dev:7201`, `:7301`, etc. — same domain, just different ports
+- With **extended**, each slot needs its own domain entry (`web.feature.myapp...`, `web.auth.myapp...`) — more entries to manage
 
 **Components:**
 - `{service}` - Service name (e.g., `web`, `api`, `admin`)
