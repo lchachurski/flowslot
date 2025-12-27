@@ -1,5 +1,7 @@
 # Flowslot
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 **The practical infrastructure for vibe coding with Cursor and Claude Code.**
 
 Run multiple parallel AI-assisted development streams — each with isolated context and its own Git branch.
@@ -196,7 +198,7 @@ Before creating the instance, get a reusable Tailscale auth key:
 3. Export it:
    ```bash
    export TAILSCALE_AUTH_KEY=tskey-auth-xxx
-   ```
+```
 
 #### Create EC2 Instance
 
@@ -628,6 +630,12 @@ ssh ubuntu@<tailscale-ip> "sudo sed -i 's/IDLE_LIMIT=7200/IDLE_LIMIT=3600/' /usr
 A **slot** is a development flow — a branch, an idea, an experiment. You open slots when you need them, close them when you're done. Multiple slots, multiple flows, zero conflicts.
 
 Perfect for the way AI-assisted development actually works: exploring multiple directions, iterating fast, keeping context clean.
+
+---
+
+## License
+
+Flowslot is licensed under the [MIT License](LICENSE).
 
 ---
 
