@@ -149,23 +149,24 @@ for i in {1..30}; do
 done
 
 # Calculate port base using persistent slot number
-# Each slot stores its number in .slot_num file
+# Uses MAX existing slot number + 1 to ensure unique numbers (never reused)
 SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SLOT_NUM
   set -euo pipefail
   SLOT_NUM_FILE='$REMOTE_PATH/.slot_num'
   
   if [ -f "\$SLOT_NUM_FILE" ]; then
-    # Use existing slot number
+    # Use existing slot number (slot was opened before)
     cat "\$SLOT_NUM_FILE"
   else
-    # Find next available slot number (1-based)
-    USED_NUMS=\$(find '$SLOT_REMOTE_BASE' -name '.slot_num' -exec cat {} \\; 2>/dev/null | sort -n)
-    NEXT_NUM=1
-    for n in \$USED_NUMS; do
-      if [ "\$n" -eq "\$NEXT_NUM" ]; then
-        NEXT_NUM=\$((NEXT_NUM + 1))
-      fi
-    done
+    # Find the highest slot number currently in use, then use MAX + 1
+    # This ensures numbers always increase and are never reused
+    MAX_NUM=\$(find '$SLOT_REMOTE_BASE' -name '.slot_num' -exec cat {} \\; 2>/dev/null | sort -n | tail -1)
+    if [ -z "\$MAX_NUM" ]; then
+      NEXT_NUM=1
+    else
+      NEXT_NUM=\$((MAX_NUM + 1))
+    fi
+    
     echo "\$NEXT_NUM" > "\$SLOT_NUM_FILE"
     echo "\$NEXT_NUM"
   fi

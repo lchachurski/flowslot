@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.2] - 2025-12-28
+
+### Fixed
+- Slot number assignment now uses MAX+1 instead of finding gaps
+- Prevents container name conflicts when old slots are deleted but containers still running
+- Numbers always increase, never reused
+
 ## [1.7.1] - 2025-12-28
 
 ### Fixed
@@ -181,7 +188,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-stop after 2 hours of inactivity
 - Tag-based versioning with `slot update` command
 
-[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.7.2...HEAD
+[1.7.2]: https://github.com/lchachurski/flowslot/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/lchachurski/flowslot/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/lchachurski/flowslot/compare/v1.6.5...v1.7.0
 [1.6.5]: https://github.com/lchachurski/flowslot/compare/v1.6.4...v1.6.5
