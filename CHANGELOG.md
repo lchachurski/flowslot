@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2025-12-28
+
+### Fixed
+- dnsmasq now waits for Tailscale to be connected before starting
+- Prevents dnsmasq from failing to bind to Tailscale IP on EC2 boot
+- Added systemd `ExecStartPre` check that polls `tailscale status` up to 30 seconds
+- Added `Restart=on-failure` with 5-second delay for resilience
+
 ## [1.7.0] - 2025-12-27
 
 ### Added
@@ -173,7 +181,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-stop after 2 hours of inactivity
 - Tag-based versioning with `slot update` command
 
-[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/lchachurski/flowslot/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/lchachurski/flowslot/compare/v1.6.5...v1.7.0
 [1.6.5]: https://github.com/lchachurski/flowslot/compare/v1.6.4...v1.6.5
 [1.6.4]: https://github.com/lchachurski/flowslot/compare/v1.6.3...v1.6.4

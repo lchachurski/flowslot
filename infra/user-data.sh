@@ -125,12 +125,20 @@ bind-interfaces
 EOF
 
 # dnsmasq systemd dependency on Tailscale
+# Problem: On EC2 boot, dnsmasq tries to bind to Tailscale IP before it's available
+# Solution: Wait for Tailscale to be connected before starting dnsmasq
 echo "Configuring dnsmasq systemd dependency..."
 mkdir -p /etc/systemd/system/dnsmasq.service.d
-cat > /etc/systemd/system/dnsmasq.service.d/tailscale.conf << 'SYSTEMD_EOF'
+cat > /etc/systemd/system/dnsmasq.service.d/wait-for-tailscale.conf << 'SYSTEMD_EOF'
 [Unit]
 After=tailscaled.service
 Wants=tailscaled.service
+
+[Service]
+# Wait up to 30 seconds for Tailscale to connect before starting dnsmasq
+ExecStartPre=/bin/bash -c 'for i in {1..30}; do tailscale status >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+Restart=on-failure
+RestartSec=5
 SYSTEMD_EOF
 
 systemctl daemon-reload
