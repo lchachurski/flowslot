@@ -63,12 +63,35 @@ if ! ssh "$SLOT_REMOTE_HOST" "[ -d '$REMOTE_PATH' ]" 2>/dev/null; then
   exit 1
 fi
 
-# Get slot number and port base
-SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" "cat '$REMOTE_PATH/.slot_num' 2>/dev/null" || echo "")
-if [ -z "$SLOT_NUM" ]; then
-  log_warn "Slot number not found. Slot may not be fully initialized."
-  exit 1
-fi
+# Get slot number by detecting actual port from running containers
+# This ensures we show the correct ports that match what's actually running
+SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_GET_NUM
+  set -euo pipefail
+  cd '$REMOTE_PATH' 2>/dev/null || exit 1
+  
+  # Try to get a port from running containers
+  # Look for any container with a port binding in 7xxx range
+  PORT=\$(docker ps --filter "label=com.docker.compose.project=${SLOT_PROJECT_NAME}-${SLOT_NAME}" --format "{{.Ports}}" 2>/dev/null | grep -oE '0\.0\.0\.0:7[0-9]+' | head -1 | cut -d: -f2)
+  
+  if [ -n "\$PORT" ]; then
+    # Calculate slot number from port: (port - 7000) / 100
+    SLOT_NUM=\$(( (PORT - $PORT_BASE_START) / $PORT_RANGE ))
+    echo "\$SLOT_NUM"
+  else
+    # Fallback: count position by directory creation time
+    POSITION=0
+    for dir in \$(ls -1td '$SLOT_REMOTE_BASE'/*/ 2>/dev/null | xargs -n1 basename); do
+      if [ -f "$SLOT_REMOTE_BASE/\$dir/docker-compose.yml" ] || [ -f "$SLOT_REMOTE_BASE/\$dir/docker-compose.dev.yml" ]; then
+        if [ "\$dir" = "$SLOT_NAME" ]; then
+          break
+        fi
+        POSITION=\$((POSITION + 1))
+      fi
+    done
+    echo "\$POSITION"
+  fi
+REMOTE_GET_NUM
+)
 
 PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
 

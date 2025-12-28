@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.4] - 2025-12-28
+
+### Changed
+- Removed `.slot_num` file tracking - slot numbering now fully dynamic
+- `slot open`: Counts existing slot directories (with docker-compose files) to determine new slot number
+- `slot info` / `slot compose`: Detects actual port from running containers to determine slot number
+- More reliable: slot numbers derived from actual state, not persisted files
+
+### Fixed
+- Slot number mismatch between open time and query time
+- No more stale `.slot_num` files causing port conflicts
+
 ## [1.7.3] - 2025-12-28
 
 ### Changed

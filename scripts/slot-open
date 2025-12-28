@@ -148,28 +148,20 @@ for i in {1..30}; do
   sleep 1
 done
 
-# Calculate port base using persistent slot number
-# Uses MAX existing slot number + 1 to ensure unique numbers (never reused)
+# Calculate slot number dynamically by counting existing slots
+# Slot number = count of existing slot directories that have docker-compose files (0-based)
 SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SLOT_NUM
   set -euo pipefail
-  SLOT_NUM_FILE='$REMOTE_PATH/.slot_num'
-  
-  if [ -f "\$SLOT_NUM_FILE" ]; then
-    # Use existing slot number (slot was opened before)
-    cat "\$SLOT_NUM_FILE"
-  else
-    # Find the highest slot number currently in use, then use MAX + 1
-    # This ensures numbers always increase and are never reused
-    MAX_NUM=\$(find '$SLOT_REMOTE_BASE' -name '.slot_num' -exec cat {} \\; 2>/dev/null | sort -n | tail -1)
-    if [ -z "\$MAX_NUM" ]; then
-      NEXT_NUM=0
-    else
-      NEXT_NUM=\$((MAX_NUM + 1))
+  # Count existing slot directories (those with docker-compose.yml or docker-compose.dev.yml)
+  # Exclude the current slot being created
+  COUNT=0
+  for dir in '$SLOT_REMOTE_BASE'/*/; do
+    dirname=\$(basename "\$dir")
+    if [ "\$dirname" != "$SLOT_NAME" ] && [ -f "\$dir/docker-compose.yml" -o -f "\$dir/docker-compose.dev.yml" ]; then
+      COUNT=\$((COUNT + 1))
     fi
-    
-    echo "\$NEXT_NUM" > "\$SLOT_NUM_FILE"
-    echo "\$NEXT_NUM"
-  fi
+  done
+  echo "\$COUNT"
 REMOTE_SLOT_NUM
 )
 PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
