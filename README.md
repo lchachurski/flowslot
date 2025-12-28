@@ -27,16 +27,16 @@ Local (Cursor + code)                    Remote Server (containers + builds)
 ┌──────────────────────────────────┐     ┌──────────────────────────────────────────┐
 │                                  │     │                                          │
 │  Cursor Window 1                 │     │  Slot: auth (branch: fix/auth-bug)       │
-│  └── ~/myapp-slots/auth/         │ ──► │  └── Docker containers on ports 7100+    │
-│                                  │sync │      web:7101  api:7103  db:7104         │
+│  └── ~/myapp-slots/auth/         │ ──► │  └── Docker containers on ports 7000+    │
+│                                  │sync │      web:7001  api:7003  db:7004         │
 │  Cursor Window 2                 │     │                                          │
 │  └── ~/myapp-slots/feature/      │ ──► │  Slot: feature (branch: feat/new-ui)     │
-│                                  │sync │  └── Docker containers on ports 7200+    │
-│  Cursor Window 3                 │     │      web:7201  api:7203  db:7204         │
+│                                  │sync │  └── Docker containers on ports 7100+    │
+│  Cursor Window 3                 │     │      web:7101  api:7103  db:7104         │
 │  └── ~/myapp-slots/experiment/   │ ──► │                                          │
 │                                  │sync │  Slot: experiment (branch: main)         │
-│                                  │     │  └── Docker containers on ports 7300+    │
-│                                  │     │      web:7301  api:7303  db:7304         │
+│                                  │     │  └── Docker containers on ports 7200+    │
+│                                  │     │      web:7201  api:7203  db:7204         │
 └──────────────────────────────────┘     └──────────────────────────────────────────┘
 ```
 
@@ -65,12 +65,12 @@ Open each slot in a separate Cursor window, with its browser beside it:
 ```
 ┌─────────────────────────────────┬─────────────────────────────────┐
 │                                 │                                 │
-│  Cursor: ~/myapp-slots/auth/    │  Browser: http://100.x.y.z:7101 │
+│  Cursor: ~/myapp-slots/auth/    │  Browser: http://100.x.y.z:7001 │
 │  (branch: fix/auth-bug)         │  (auth slot's web app)          │
 │                                 │                                 │
 ├─────────────────────────────────┼─────────────────────────────────┤
 │                                 │                                 │
-│  Cursor: ~/myapp-slots/feature/ │  Browser: http://100.x.y.z:7201 │
+│  Cursor: ~/myapp-slots/feature/ │  Browser: http://100.x.y.z:7101 │
 │  (branch: feat/new-ui)          │  (feature slot's web app)       │
 │                                 │                                 │
 └─────────────────────────────────┴─────────────────────────────────┘
@@ -89,9 +89,9 @@ slot list
 # Output:
 # NAME        BRANCH         PORTS       STATUS
 # ----------------------------------------------------------------
-# auth        fix/auth-bug   7100-7199   running
-# feature     feat/new-ui    7200-7299   running
-# experiment  main           7300-7399   running
+# auth        fix/auth-bug   7000-7099   running
+# feature     feat/new-ui    7100-7199   running
+# experiment  main           7200-7299   running
 ```
 
 Access each slot's services via wildcard DNS (recommended) or Tailscale IP:
@@ -99,16 +99,16 @@ Access each slot's services via wildcard DNS (recommended) or Tailscale IP:
 **Wildcard DNS (recommended):**
 | Slot | Web App | API | Database |
 |------|---------|-----|----------|
-| auth | `http://web.auth.myapp.flowslot.dev:7101` | `http://api.auth.myapp.flowslot.dev:7103` | `db.auth.myapp.flowslot.dev:7104` |
-| feature | `http://web.feature.myapp.flowslot.dev:7201` | `http://api.feature.myapp.flowslot.dev:7203` | `db.feature.myapp.flowslot.dev:7204` |
-| experiment | `http://web.experiment.myapp.flowslot.dev:7301` | `http://api.experiment.myapp.flowslot.dev:7303` | `db.experiment.myapp.flowslot.dev:7304` |
+| auth | `http://web.auth.myapp.flowslot.dev:7001` | `http://api.auth.myapp.flowslot.dev:7003` | `db.auth.myapp.flowslot.dev:7004` |
+| feature | `http://web.feature.myapp.flowslot.dev:7101` | `http://api.feature.myapp.flowslot.dev:7103` | `db.feature.myapp.flowslot.dev:7104` |
+| experiment | `http://web.experiment.myapp.flowslot.dev:7201` | `http://api.experiment.myapp.flowslot.dev:7203` | `db.experiment.myapp.flowslot.dev:7204` |
 
 **Tailscale IP (fallback):**
 | Slot | Web App | API | Database |
 |------|---------|-----|----------|
-| auth | `http://100.x.y.z:7101` | `http://100.x.y.z:7103` | `100.x.y.z:7104` |
-| feature | `http://100.x.y.z:7201` | `http://100.x.y.z:7203` | `100.x.y.z:7204` |
-| experiment | `http://100.x.y.z:7301` | `http://100.x.y.z:7303` | `100.x.y.z:7304` |
+| auth | `http://100.x.y.z:7001` | `http://100.x.y.z:7003` | `100.x.y.z:7004` |
+| feature | `http://100.x.y.z:7101` | `http://100.x.y.z:7103` | `100.x.y.z:7104` |
+| experiment | `http://100.x.y.z:7201` | `http://100.x.y.z:7203` | `100.x.y.z:7204` |
 
 **Real example:** You're testing a new login flow. Open the auth slot's app in one browser, the main branch in another. Click through both. See the difference instantly.
 
@@ -391,8 +391,8 @@ Two patterns are available — both work with the dnsmasq wildcard:
 
 | Pattern | Format | Example |
 |---------|--------|---------|
-| **Simple** | `{service}.{project}.flowslot.dev:{port}` | `http://web.myapp.flowslot.dev:7201` |
-| **Extended** | `{service}.{slot}.{project}.flowslot.dev:{port}` | `http://web.feature.myapp.flowslot.dev:7201` |
+| **Simple** | `{service}.{project}.flowslot.dev:{port}` | `http://web.myapp.flowslot.dev:7001` |
+| **Extended** | `{service}.{slot}.{project}.flowslot.dev:{port}` | `http://web.feature.myapp.flowslot.dev:7101` |
 
 **When to use which:**
 
@@ -402,7 +402,7 @@ Two patterns are available — both work with the dnsmasq wildcard:
 | **Extended** | Multi-tenant apps, clean URLs | When subdomain is part of your product (e.g., `tenant.myapp.com`), or you want fully distinct URLs per slot |
 
 **Example:** Google OAuth requires whitelisting redirect URIs.
-- With **simple**, add URIs like `http://web.myapp.flowslot.dev:7201`, `:7301`, etc. — same domain, just different ports
+- With **simple**, add URIs like `http://web.myapp.flowslot.dev:7001`, `:7101`, etc. — same domain, just different ports
 - With **extended**, each slot needs its own domain entry (`web.feature.myapp...`, `web.auth.myapp...`) — more entries to manage
 
 **Components:**
@@ -410,13 +410,13 @@ Two patterns are available — both work with the dnsmasq wildcard:
 - `{slot}` - Slot name (e.g., `feature-x`, `auth`) — optional
 - `{project}` - Project name (e.g., `myapp`, `webapp`)
 - `flowslot.dev` - Domain (configured via Tailscale Split DNS)
-- `{port}` - Port number (e.g., `7201`, `7203`) — unique per slot
+- `{port}` - Port number (e.g., `7001`, `7103`) — unique per slot
 
 ### How It Works
 
 1. **dnsmasq on EC2** resolves all `*.flowslot.dev` queries to the EC2's Tailscale IP
 2. **Tailscale Split DNS** forwards `*.flowslot.dev` queries from your devices to the EC2 instance
-3. **Your browser** resolves `web.myapp.flowslot.dev` → EC2 Tailscale IP → connects to port 7201
+3. **Your browser** resolves `web.myapp.flowslot.dev` → EC2 Tailscale IP → connects to port 7001
 
 ### Benefits
 
@@ -467,7 +467,7 @@ On the remote server, each slot is a directory at `/srv/myapp/<slot-name>/` cont
 |-------|------|-----|
 | **Git Worktrees** | Each slot is a local checkout on its own branch | Edit different branches simultaneously |
 | **Mutagen Sync** | Real-time bidirectional file sync (~100ms latency) | Save locally, see changes on remote instantly |
-| **Dynamic Ports** | Slot 1: 7100-7199, Slot 2: 7200-7299, etc. | Run multiple stacks without port conflicts |
+| **Dynamic Ports** | Slot 0: 7000-7099, Slot 1: 7100-7199, Slot 2: 7200-7299, etc. | Run multiple stacks without port conflicts |
 | **Tailscale** | Private mesh network (100.x.y.z addresses) | Access remote services securely, no public ports |
 | **dnsmasq** | Wildcard DNS resolver (`*.flowslot.dev`) | Human-readable URLs for services |
 | **Docker Compose** | Your existing setup with port overrides | Same containers, just isolated per slot |
@@ -531,12 +531,12 @@ This file defines your port variables relative to `SLOT_PORT_BASE` (provided by 
 #!/bin/bash
 # flowslot-ports.sh
 
-# SLOT_PORT_BASE is set by flowslot: 7200, 7300, 7400, etc.
-# SLOT is the slot number: 1, 2, 3, etc.
+# SLOT_PORT_BASE is set by flowslot: 7000, 7100, 7200, etc.
+# SLOT is the slot number: 0, 1, 2, etc. (0-based)
 
-export SLOT_PORT_WEB=$((SLOT_PORT_BASE + 1))      # 7201, 7301, ...
-export SLOT_PORT_API=$((SLOT_PORT_BASE + 3))      # 7203, 7303, ...
-export SLOT_PORT_DB=$((SLOT_PORT_BASE + 4))       # 7204, 7304, ...
+export SLOT_PORT_WEB=$((SLOT_PORT_BASE + 1))      # 7001, 7101, 7201, ...
+export SLOT_PORT_API=$((SLOT_PORT_BASE + 3))      # 7003, 7103, 7203, ...
+export SLOT_PORT_DB=$((SLOT_PORT_BASE + 4))       # 7004, 7104, 7204, ...
 
 # Unique container names and volumes per slot
 export POSTGRES_CONTAINER_NAME="myapp-postgres-${SLOT}"
@@ -570,8 +570,8 @@ Flowslot exports these before running docker compose:
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `SLOT` | `1` | Slot number (1, 2, 3, ...) |
-| `SLOT_PORT_BASE` | `7200` | Base port for this slot |
+| `SLOT` | `0` | Slot number (0, 1, 2, ...) - 0-based |
+| `SLOT_PORT_BASE` | `7000` | Base port for this slot |
 | `SLOT_REMOTE_IP` | `100.112.147.63` | Tailscale IP of remote server |
 | `COMPOSE_PROJECT_NAME` | `myapp-auth` | Unique project name per slot |
 
