@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.3] - 2025-12-28
+
+### Changed
+- Slot numbering now 0-based (first slot = 0)
+- Port range starts at 7000 (slot 0: 7000-7099, slot 1: 7100-7199)
+- PORT_BASE_START changed from 7100 to 7000
+
 ## [1.7.2] - 2025-12-28
 
 ### Fixed
@@ -188,7 +195,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-stop after 2 hours of inactivity
 - Tag-based versioning with `slot update` command
 
-[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.7.2...HEAD
+[Unreleased]: https://github.com/lchachurski/flowslot/compare/v1.7.3...HEAD
+[1.7.3]: https://github.com/lchachurski/flowslot/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/lchachurski/flowslot/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/lchachurski/flowslot/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/lchachurski/flowslot/compare/v1.6.5...v1.7.0

@@ -105,6 +105,6 @@ detect_slot_name() {
 }
 
 # Constants
-readonly PORT_BASE_START=7100
+readonly PORT_BASE_START=7000
 readonly PORT_RANGE=100
 

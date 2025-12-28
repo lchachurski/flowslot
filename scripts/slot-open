@@ -162,7 +162,7 @@ SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SLOT_NUM
     # This ensures numbers always increase and are never reused
     MAX_NUM=\$(find '$SLOT_REMOTE_BASE' -name '.slot_num' -exec cat {} \\; 2>/dev/null | sort -n | tail -1)
     if [ -z "\$MAX_NUM" ]; then
-      NEXT_NUM=1
+      NEXT_NUM=0
     else
       NEXT_NUM=\$((MAX_NUM + 1))
     fi
