@@ -297,7 +297,8 @@ slot open my-feature main
 | Command | What it does |
 |---------|--------------|
 | `slot init` | Initialize flowslot for current project |
-| `slot open <name> [branch]` | Create/open a slot on a branch |
+| `slot open <name> [branch]` | Create a new slot on a branch (errors if slot already exists) |
+| `slot resume [name]` | Resume an existing slot without wiping remote files (preserves node_modules, build caches). Auto-detects slot name if inside slot directory. |
 | `slot close <name>` | Stop a slot's containers |
 | `slot list` | Show all active slots |
 
@@ -378,6 +379,35 @@ slot compose feature-x exec api bash
 ```
 
 **Why this is useful:** When developing in a slot directory (e.g., `~/myapp-slots/feature-x/`), you often need to rebuild containers, check logs, or run migrations. Instead of manually SSHing and navigating to the remote directory, `slot compose` handles it all — just like running `docker compose` locally, but on the remote slot.
+
+### Resuming Slots
+
+After closing a slot (`slot close`) or stopping the server (`slot server stop`), use `slot resume` to bring it back without losing remote-only files:
+
+```bash
+# Resume a slot (auto-detects name if inside slot directory)
+cd ~/myapp-slots/feature-x
+slot resume
+
+# Or specify slot name explicitly
+slot resume feature-x
+```
+
+**What `slot resume` preserves:**
+- `node_modules` directories (built by services like coder)
+- Build caches (`.svelte-kit`, `.next`, etc.)
+- Any other remote-only artifacts
+
+**When to use which command:**
+
+| Scenario | Command |
+|----------|---------|
+| First time creating a slot | `slot open <name>` |
+| After `slot close` | `slot resume [name]` |
+| After `slot server stop` + `start` | `slot resume [name]` |
+| Want a fresh start (wipe everything) | `slot close <name>` then `slot open <name>` |
+
+**Note:** `slot open` will error if the slot already exists locally. Use `slot resume` to bring back an existing slot.
 
 ---
 

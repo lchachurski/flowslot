@@ -1,0 +1,220 @@
+#!/bin/bash
+# Resume an existing slot
+# Usage: slot resume [name]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# Source common functions
+# shellcheck source=lib/common.sh
+source "$LIB_DIR/common.sh"
+
+show_help() {
+  cat << EOF
+Usage: slot resume [name]
+
+Resumes an existing development slot without wiping remote files.
+
+Arguments:
+  name      Slot name (optional if inside a slot directory)
+
+Options:
+  -h, --help    Show this help message
+
+Examples:
+  slot resume feature-x
+  slot resume                    # Auto-detects slot name from current directory
+EOF
+}
+
+# Handle help flag
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  show_help
+  exit 0
+fi
+
+# Auto-detect slot name if not provided
+if [ -z "${1:-}" ]; then
+  if ! SLOT_NAME=$(detect_slot_name 2>/dev/null); then
+    log_error "Slot name required (not inside a slot directory)"
+    echo ""
+    show_help
+    exit 1
+  fi
+else
+  SLOT_NAME="$1"
+fi
+
+# Validate slot name
+validate_slot_name "$SLOT_NAME"
+
+LOCAL_PATH="$SLOT_SLOTS_DIR/$SLOT_NAME"
+REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
+
+# Check if slot exists locally
+if [ ! -d "$LOCAL_PATH" ]; then
+  die "Slot '$SLOT_NAME' not found locally. Use 'slot open $SLOT_NAME' to create it."
+fi
+
+log_info "Resuming slot '$SLOT_NAME'..."
+
+# Auto-start server if stopped
+log_info "Checking server status..."
+if [ -n "${SLOT_AWS_INSTANCE_ID:-}" ] && [ -n "${SLOT_AWS_REGION:-}" ]; then
+  STATE=$(aws ec2 describe-instances \
+    --instance-ids "$SLOT_AWS_INSTANCE_ID" \
+    --region "$SLOT_AWS_REGION" \
+    --query 'Reservations[0].Instances[0].State.Name' \
+    --output text 2>/dev/null || echo "unknown")
+  
+  if [ "$STATE" != "running" ]; then
+    log_info "Server is stopped. Starting..."
+    "$SCRIPT_DIR/slot-server" start
+  fi
+else
+  log_warn "AWS instance ID not configured. Skipping server check."
+fi
+
+# Check if slot exists on remote
+if ! ssh "$SLOT_REMOTE_HOST" "[ -d '$REMOTE_PATH' ]" 2>/dev/null; then
+  die "Slot '$SLOT_NAME' not found on remote server. Use 'slot open $SLOT_NAME' to create it."
+fi
+
+# Resume Mutagen sync (no wipe)
+SYNC_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
+log_info "Resuming Mutagen sync..."
+
+# Check if sync exists
+if mutagen sync list --label-selector="name=$SYNC_NAME" 2>/dev/null | grep -q "Name:"; then
+  # Check if sync is connected
+  if mutagen sync list --label-selector="name=$SYNC_NAME" 2>/dev/null | grep -q "Status: Connected"; then
+    log_info "  Sync exists and connected. Flushing..."
+    mutagen sync flush "$SYNC_NAME" 2>/dev/null || true
+  else
+    log_info "  Sync exists but not connected. Recreating..."
+    mutagen sync terminate "$SYNC_NAME" 2>/dev/null || true
+    sleep 1
+    mutagen sync create \
+      "$LOCAL_PATH" \
+      "$SLOT_REMOTE_HOST:$REMOTE_PATH" \
+      --name="$SYNC_NAME" \
+      --label="name=$SYNC_NAME" \
+      --ignore=".git" \
+      --ignore="node_modules" \
+      --ignore=".next" \
+      --ignore="dist" \
+      --ignore="*.log" \
+      --ignore=".DS_Store" \
+      --sync-mode=two-way-resolved \
+      --default-file-mode=0644 \
+      --default-directory-mode=0755
+  fi
+else
+  log_info "  Creating new sync..."
+  mutagen sync create \
+    "$LOCAL_PATH" \
+    "$SLOT_REMOTE_HOST:$REMOTE_PATH" \
+    --name="$SYNC_NAME" \
+    --label="name=$SYNC_NAME" \
+    --ignore=".git" \
+    --ignore="node_modules" \
+    --ignore=".next" \
+    --ignore="dist" \
+    --ignore="*.log" \
+    --ignore=".DS_Store" \
+    --sync-mode=two-way-resolved \
+    --default-file-mode=0644 \
+    --default-directory-mode=0755
+fi
+
+# Wait for sync to stabilize
+log_info "Waiting for sync to stabilize..."
+for i in {1..30}; do
+  if mutagen sync flush "$SYNC_NAME" 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+
+# Detect slot number from existing Docker containers
+log_info "Detecting slot number from containers..."
+SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_GET_NUM
+  set -euo pipefail
+  cd '$REMOTE_PATH' 2>/dev/null || exit 1
+  
+  # Try to get a port from containers (including stopped ones)
+  PORT=\$(docker ps -a --filter "label=com.docker.compose.project=${SLOT_PROJECT_NAME}-${SLOT_NAME}" --format "{{.Ports}}" 2>/dev/null | grep -oE '0\.0\.0\.0:7[0-9]{3}' | head -1 | cut -d: -f2)
+  
+  if [ -n "\$PORT" ]; then
+    # Calculate slot number from port: (port - 7000) / 100
+    SLOT_NUM=\$(( (PORT - $PORT_BASE_START) / $PORT_RANGE ))
+    echo "\$SLOT_NUM"
+  else
+    log_error "No containers found for slot '$SLOT_NAME'. Use 'slot open' for fresh start."
+    exit 1
+  fi
+REMOTE_GET_NUM
+)
+
+if [ -z "$SLOT_NUM" ]; then
+  die "Could not detect slot number. No containers found. Use 'slot open $SLOT_NAME' for fresh start."
+fi
+
+PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
+
+# Get Tailscale IP for accessing services
+TAILSCALE_IP=$(ssh "$SLOT_REMOTE_HOST" "tailscale ip -4 2>/dev/null" | head -1 || echo "")
+
+# Start containers with detected slot number
+log_info "Starting containers..."
+ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
+  set -e
+  cd '$REMOTE_PATH'
+  
+  # Export slot variables
+  export SLOT=$SLOT_NUM
+  export SLOT_NAME="${SLOT_NAME}"
+  export SLOT_PORT_BASE=$PORT_BASE
+  export SLOT_PROJECT_NAME="${SLOT_PROJECT_NAME}"
+  export SLOT_REMOTE_IP="${TAILSCALE_IP:-localhost}"
+  export COMPOSE_PROJECT_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
+  
+  # Source project-specific port definitions if they exist
+  if [ -f 'flowslot-ports.sh' ]; then
+    source flowslot-ports.sh
+  fi
+  
+  # Build compose command from configured files
+  COMPOSE_FILES="${SLOT_COMPOSE_FILES}"
+  COMPOSE_CMD="docker compose"
+  for f in \$COMPOSE_FILES; do
+    if [ -f "\$f" ]; then
+      COMPOSE_CMD="\$COMPOSE_CMD -f \$f"
+    fi
+  done
+  
+  # Add flowslot override file if it exists and not already included
+  if [ -f 'docker-compose.flowslot.yml' ]; then
+    if ! echo "\$COMPOSE_CMD" | grep -q 'docker-compose.flowslot.yml'; then
+      COMPOSE_CMD="\$COMPOSE_CMD -f docker-compose.flowslot.yml"
+    fi
+  fi
+  
+  echo "Running: \$COMPOSE_CMD up -d"
+  eval "\$COMPOSE_CMD up -d"
+REMOTE_SCRIPT
+
+echo ""
+success "Slot '$SLOT_NAME' resumed!"
+echo ""
+echo "  Local:  $LOCAL_PATH"
+echo "  Remote: $SLOT_REMOTE_HOST:$REMOTE_PATH"
+echo "  Slot #: $SLOT_NUM"
+echo "  Ports:  $PORT_BASE - $((PORT_BASE + PORT_RANGE - 1))"
+if [ -n "${TAILSCALE_IP:-}" ]; then
+  echo "  Access: http://$TAILSCALE_IP:$((PORT_BASE + 1))"
+fi
+echo ""
+

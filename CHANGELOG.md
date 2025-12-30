@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.5] - 2025-12-28
+
+### Added
+- `slot resume [name]` command to resume existing slots without wiping remote files
+- Auto-detection of slot name from current directory for `slot resume`
+- Auto-start server if stopped when resuming a slot
+- Preserves remote-only files (node_modules, build caches) when resuming
+
+### Changed
+- `slot open` now errors if slot already exists (single responsibility)
+- `slot open` no longer resumes existing slots - use `slot resume` instead
+
+### Fixed
+- Slot number detection in `slot resume` uses existing container ports (works even after `slot close`)
+
 ## [1.7.4] - 2025-12-28
 
 ### Changed

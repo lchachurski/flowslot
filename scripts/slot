@@ -18,6 +18,7 @@ Usage: slot <command> [args]
 Commands:
   init              Initialize flowslot for this project
   open <name>       Open/create a slot
+  resume [name]     Resume an existing slot
   close <name>      Close/stop a slot
   list              List all slots
   info <name>       Show slot details (URLs, ports, containers)
@@ -69,6 +70,17 @@ case "$1" in
     source "$CONFIG_FILE"
     set +a
     "$SCRIPT_DIR/slot-open" "$@"
+    ;;
+  resume)
+    shift
+    if ! CONFIG_FILE=$(find_config); then
+      die ".slotconfig not found. Run 'slot init' first."
+    fi
+    # shellcheck source=/dev/null
+    set -a
+    source "$CONFIG_FILE"
+    set +a
+    "$SCRIPT_DIR/slot-resume" "$@"
     ;;
   close)
     shift

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Open (create or resume) a slot
+# Open (create) a slot
 # Usage: slot open <name> [branch]
 
 set -euo pipefail
@@ -54,9 +54,10 @@ REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
 
 # Check if slot already exists locally
 if [ -d "$LOCAL_PATH" ]; then
-  log_info "Slot '$SLOT_NAME' already exists locally. Resuming..."
-else
-  log_info "Creating slot '$SLOT_NAME' on branch '$BRANCH'..."
+  die "Slot '$SLOT_NAME' already exists. Use 'slot resume $SLOT_NAME' to resume it."
+fi
+
+log_info "Creating slot '$SLOT_NAME' on branch '$BRANCH'..."
   
   # Setup local worktree from the bare repo
   log_info "Setting up local worktree..."
@@ -71,7 +72,6 @@ else
   git worktree add "$LOCAL_PATH" "$BRANCH" 2>/dev/null || \
   git worktree add "$LOCAL_PATH" -b "$BRANCH" origin/"$BRANCH" 2>/dev/null || \
   git worktree add "$LOCAL_PATH" HEAD
-fi
 
 # Symlink .slotconfig into slot directory so commands work from there
 CONFIG_SOURCE="$SLOT_SOURCE_DIR/.slotconfig"
