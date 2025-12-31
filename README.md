@@ -152,7 +152,7 @@ git clone https://github.com/lchachurski/flowslot.git ~/.flowslot && \
   source ~/.zshrc
 ```
 
-This installs the latest stable release. The `latest` tag always points to the most recent release. To install a specific version, replace `latest` with the tag name (e.g., `v1.4`).
+This installs the latest stable release. The `latest` tag always points to the most recent release. To install a specific version, replace `latest` with the tag name (e.g., `v2.0.1`).
 
 ### Updating Flowslot
 
@@ -164,12 +164,10 @@ slot self upgrade --remote   # Also update remote server scripts
 
 Check your version:
 ```bash
-slot version
-# or
-slot -v
+slot self version
 ```
 
-**First-time upgraders:** If you installed flowslot before v1.0:
+**First-time upgraders:** If you installed flowslot before v2.0.0:
 
 ```bash
 cd ~/.flowslot && git fetch --tags && git checkout $(git tag --sort=v:refname | tail -1)
