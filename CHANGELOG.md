@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.6] - 2025-12-31
+
+### Fixed
+- `slot resume` now correctly detects slot number from stopped containers
+- Uses `docker inspect` instead of `docker ps -a` to get port bindings
+- Fixes issue where resume would fail after `slot close` + `slot server stop/start`
+
 ## [1.7.5] - 2025-12-28
 
 ### Added

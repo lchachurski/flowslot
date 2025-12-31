@@ -139,26 +139,35 @@ for i in {1..30}; do
 done
 
 # Detect slot number from existing Docker containers
+# Uses docker inspect to get port bindings (works even for stopped containers)
 log_info "Detecting slot number from containers..."
 SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_GET_NUM
   set -euo pipefail
   cd '$REMOTE_PATH' 2>/dev/null || exit 1
   
-  # Try to get a port from containers (including stopped ones)
-  PORT=\$(docker ps -a --filter "label=com.docker.compose.project=${SLOT_PROJECT_NAME}-${SLOT_NAME}" --format "{{.Ports}}" 2>/dev/null | grep -oE '0\.0\.0\.0:7[0-9]{3}' | head -1 | cut -d: -f2)
+  # Get first container for this compose project
+  CONTAINER=\$(docker ps -a --filter "label=com.docker.compose.project=${SLOT_PROJECT_NAME}-${SLOT_NAME}" --format "{{.Names}}" 2>/dev/null | head -1)
+  
+  if [ -z "\$CONTAINER" ]; then
+    echo "NO_CONTAINERS"
+    exit 0
+  fi
+  
+  # Use docker inspect to get port bindings (works for stopped containers)
+  PORT=\$(docker inspect "\$CONTAINER" --format '{{range \$k,\$v := .HostConfig.PortBindings}}{{range \$v}}{{.HostPort}} {{end}}{{end}}' 2>/dev/null | tr ' ' '\n' | grep -E '^7[0-9]{3}$' | head -1)
   
   if [ -n "\$PORT" ]; then
     # Calculate slot number from port: (port - 7000) / 100
     SLOT_NUM=\$(( (PORT - $PORT_BASE_START) / $PORT_RANGE ))
     echo "\$SLOT_NUM"
   else
-    log_error "No containers found for slot '$SLOT_NAME'. Use 'slot open' for fresh start."
-    exit 1
+    echo "NO_PORT"
+    exit 0
   fi
 REMOTE_GET_NUM
 )
 
-if [ -z "$SLOT_NUM" ]; then
+if [ -z "$SLOT_NUM" ] || [ "$SLOT_NUM" = "NO_CONTAINERS" ] || [ "$SLOT_NUM" = "NO_PORT" ]; then
   die "Could not detect slot number. No containers found. Use 'slot open $SLOT_NAME' for fresh start."
 fi
 
