@@ -8,6 +8,12 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.0.2] - 2025-01-01
+
+### Fixed
+- Worktrees now always created on named branches, never detached HEAD
+- New slots properly track their branch for commits
+
 ## [2.0.1] - 2025-01-01
 
 ### Fixed
@@ -263,7 +269,8 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 - Auto-stop after 2 hours of inactivity
 - Tag-based versioning with `slot self upgrade` command
 
-[Unreleased]: https://github.com/lchachurski/flowslot/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/lchachurski/flowslot/compare/v2.0.2...HEAD
+[2.0.2]: https://github.com/lchachurski/flowslot/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/lchachurski/flowslot/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/lchachurski/flowslot/compare/v1.7.6...v2.0.0
 [1.7.6]: https://github.com/lchachurski/flowslot/compare/v1.7.5...v1.7.6
