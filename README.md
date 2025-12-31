@@ -52,10 +52,10 @@ Local (Cursor + code)                    Remote Server (containers + builds)
 # Start your remote server
 slot server start
 
-# Open slots for what you're working on today
-slot open auth fix/auth-bug
-slot open feature feat/new-ui
-slot open experiment main
+# Create slots for what you're working on today
+slot create auth fix/auth-bug
+slot create feature feat/new-ui
+slot create experiment main
 ```
 
 ### Your Desktop Layout
@@ -115,9 +115,9 @@ Access each slot's services via wildcard DNS (recommended) or Tailscale IP:
 ### End of Day
 
 ```bash
-slot close auth
-slot close feature
-slot close experiment
+slot stop auth
+slot stop feature
+slot stop experiment
 slot server stop
 ```
 
@@ -157,9 +157,9 @@ This installs the latest stable release. The `latest` tag always points to the m
 ### Updating Flowslot
 
 ```bash
-slot update            # Update to latest stable version
-slot update --edge     # Update to main branch (bleeding edge)
-slot update --remote   # Also update remote server scripts
+slot self upgrade            # Upgrade to latest stable version
+slot self upgrade --edge     # Upgrade to main branch (bleeding edge)
+slot self upgrade --remote   # Also update remote server scripts
 ```
 
 Check your version:
@@ -274,7 +274,7 @@ Follow the URL to authenticate, then configure Split DNS and lock down the secur
 
 ```bash
 cd ~/development/your-project
-slot init
+slot self init
 # Enter your AWS Instance ID and Tailscale IP when prompted
 ```
 
@@ -282,7 +282,7 @@ slot init
 
 ```bash
 slot server start
-slot open my-feature main
+slot create my-feature main
 # Opens Cursor-ready directory at ~/development/your-project-slots/my-feature/
 ```
 
@@ -292,32 +292,39 @@ slot open my-feature main
 
 **Note:** Commands with `<name>` require a slot name (e.g., `feature-x`, `auth`, `feature`). Slot names must be lowercase alphanumeric with hyphens only.
 
-### Slot Management
+### Slot Lifecycle
 
 | Command | What it does |
 |---------|--------------|
-| `slot init` | Initialize flowslot for current project |
-| `slot open <name> [branch]` | Create a new slot on a branch (errors if slot already exists) |
+| `slot create <name> [branch]` | Create a new slot on a branch (errors if slot already exists) |
+| `slot stop [name]` | Stop a slot's containers (keeps files). Auto-detects slot name if inside slot directory. |
 | `slot resume [name]` | Resume an existing slot without wiping remote files (preserves node_modules, build caches). Auto-detects slot name if inside slot directory. |
-| `slot close <name>` | Stop a slot's containers |
-| `slot list` | Show all active slots |
+| `slot destroy [name]` | Fully delete a slot (local + remote). Auto-detects slot name if inside slot directory. |
 
 ### Slot Operations
 
 | Command | What it does |
 |---------|--------------|
+| `slot list` | Show all active slots |
 | `slot info [name]` | Show slot details (URLs, ports, containers, sync status). Auto-detects slot name if inside slot directory. |
 | `slot compose [name] <args...>` | Proxy docker compose commands to remote slot. Auto-detects slot name if inside slot directory. |
 
-### Server & System
+### Server
 
 | Command | What it does |
 |---------|--------------|
-| `slot status` | Show remote server resources (all slots) |
 | `slot server start` | Start the EC2 instance |
 | `slot server stop` | Stop the EC2 instance |
-| `slot update [--edge] [--remote]` | Update flowslot CLI (stable by default, --edge for main branch) |
-| `slot version` | Show flowslot version |
+| `slot server status` | Show EC2 instance status |
+| `slot server info` | Show remote server resources (CPU, RAM, disk, all slots) |
+
+### Meta
+
+| Command | What it does |
+|---------|--------------|
+| `slot self init` | Initialize flowslot for current project |
+| `slot self upgrade [--edge] [--remote]` | Upgrade flowslot CLI (stable by default, --edge for main branch) |
+| `slot self version` | Show flowslot version |
 
 ---
 
@@ -382,7 +389,7 @@ slot compose feature-x exec api bash
 
 ### Resuming Slots
 
-After closing a slot (`slot close`) or stopping the server (`slot server stop`), use `slot resume` to bring it back without losing remote-only files:
+After stopping a slot (`slot stop`) or stopping the server (`slot server stop`), use `slot resume` to bring it back without losing remote-only files:
 
 ```bash
 # Resume a slot (auto-detects name if inside slot directory)
@@ -402,12 +409,12 @@ slot resume feature-x
 
 | Scenario | Command |
 |----------|---------|
-| First time creating a slot | `slot open <name>` |
-| After `slot close` | `slot resume [name]` |
+| First time creating a slot | `slot create <name>` |
+| After `slot stop` | `slot resume [name]` |
 | After `slot server stop` + `start` | `slot resume [name]` |
-| Want a fresh start (wipe everything) | `slot close <name>` then `slot open <name>` |
+| Want a fresh start (wipe everything) | `slot destroy [name]` then `slot create <name>` |
 
-**Note:** `slot open` will error if the slot already exists locally. Use `slot resume` to bring back an existing slot.
+**Note:** `slot create` will error if the slot already exists locally. Use `slot resume` to bring back an existing slot, or `slot destroy` to fully delete it first.
 
 ---
 
@@ -465,7 +472,7 @@ Wildcard DNS is automatically configured when you create a new EC2 instance via 
 
 ### Directory Structure
 
-When you run `slot init` in your project, flowslot creates a sibling directory for slots:
+When you run `slot self init` in your project, flowslot creates a sibling directory for slots:
 
 ```
 ~/development/

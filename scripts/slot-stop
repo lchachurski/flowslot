@@ -1,6 +1,6 @@
 #!/bin/bash
-# Close (stop) a slot
-# Usage: slot close <name>
+# Stop a slot
+# Usage: slot stop [name]
 
 set -euo pipefail
 
@@ -13,19 +13,20 @@ source "$LIB_DIR/common.sh"
 
 show_help() {
   cat << EOF
-Usage: slot close <name>
+Usage: slot stop [name]
 
-Closes (stops) a development slot.
+Stops a development slot (keeps files).
 
 Arguments:
-  name      Slot name to close
+  name      Slot name (optional if inside a slot directory)
 
 Options:
   -h, --help    Show this help message
 
 Examples:
-  slot close auth
-  slot close feature-branch
+  slot stop auth
+  slot stop feature-branch
+  slot stop                    # Auto-detects slot name from current directory
 EOF
 }
 
@@ -35,14 +36,20 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   exit 0
 fi
 
+# Auto-detect slot name if not provided
 if [ -z "${1:-}" ]; then
-  log_error "Slot name required"
-  echo ""
-  show_help
-  exit 1
+  if ! SLOT_NAME=$(detect_slot_name 2>/dev/null); then
+    log_error "Slot name required (not inside a slot directory)"
+    echo ""
+    show_help
+    exit 1
+  fi
+else
+  SLOT_NAME="$1"
 fi
 
-SLOT_NAME="$1"
+# Validate slot name
+validate_slot_name "$SLOT_NAME"
 REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
 SYNC_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
 
@@ -51,7 +58,7 @@ if ! ssh "$SLOT_REMOTE_HOST" "[ -d '$REMOTE_PATH' ]" 2>/dev/null; then
   die "Slot '$SLOT_NAME' not found on remote"
 fi
 
-log_info "Closing slot '$SLOT_NAME'..."
+log_info "Stopping slot '$SLOT_NAME'..."
 
 # Stop containers
 log_info "Stopping containers..."
@@ -79,5 +86,5 @@ REMOTE_SCRIPT
 log_info "Stopping sync..."
 mutagen sync terminate "$SYNC_NAME" 2>/dev/null || true
 
-success "Slot '$SLOT_NAME' closed"
+success "Slot '$SLOT_NAME' stopped"
 

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Update flowslot to latest version
-# Usage: slot-update [--remote] [--edge]
+# Upgrade flowslot to latest version
+# Usage: slot self upgrade [--remote] [--edge]
 
 set -euo pipefail
 
@@ -13,9 +13,9 @@ USE_EDGE=false
 
 show_help() {
   cat << EOF
-Usage: slot update [--remote] [--edge]
+Usage: slot self upgrade [--remote] [--edge]
 
-Update flowslot to the latest version.
+Upgrade flowslot to the latest version.
 
 Options:
   --edge      Update to main branch (bleeding edge, may be unstable)
@@ -50,7 +50,7 @@ done
 ORIGINAL_PWD="$PWD"
 if [ "$UPDATE_REMOTE" = true ]; then
   if ! CONFIG_FILE=$(find_config 2>/dev/null); then
-    die "Cannot update remote: .slotconfig not found. Run from a project directory with 'slot init' done."
+    die "Cannot update remote: .slotconfig not found. Run from a project directory with 'slot self init' done."
   fi
   # shellcheck source=/dev/null
   set -a

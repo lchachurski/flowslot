@@ -1,6 +1,6 @@
 #!/bin/bash
-# Open (create) a slot
-# Usage: slot open <name> [branch]
+# Create a slot
+# Usage: slot create <name> [branch]
 
 set -euo pipefail
 
@@ -13,9 +13,9 @@ source "$LIB_DIR/common.sh"
 
 show_help() {
   cat << EOF
-Usage: slot open <name> [branch]
+Usage: slot create <name> [branch]
 
-Opens or creates a development slot.
+Creates a new development slot.
 
 Arguments:
   name      Slot name (lowercase alphanumeric with hyphens only)
@@ -25,8 +25,8 @@ Options:
   -h, --help    Show this help message
 
 Examples:
-  slot open auth main
-  slot open feature-branch feat/new-ui
+  slot create auth main
+  slot create feature-branch feat/new-ui
 EOF
 }
 
@@ -54,7 +54,7 @@ REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
 
 # Check if slot already exists locally
 if [ -d "$LOCAL_PATH" ]; then
-  die "Slot '$SLOT_NAME' already exists. Use 'slot resume $SLOT_NAME' to resume it."
+  die "Slot '$SLOT_NAME' already exists. Use 'slot resume $SLOT_NAME' to resume it, or 'slot destroy $SLOT_NAME' to delete it."
 fi
 
 log_info "Creating slot '$SLOT_NAME' on branch '$BRANCH'..."

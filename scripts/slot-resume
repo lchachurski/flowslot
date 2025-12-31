@@ -55,7 +55,7 @@ REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
 
 # Check if slot exists locally
 if [ ! -d "$LOCAL_PATH" ]; then
-  die "Slot '$SLOT_NAME' not found locally. Use 'slot open $SLOT_NAME' to create it."
+  die "Slot '$SLOT_NAME' not found locally. Use 'slot create $SLOT_NAME' to create it."
 fi
 
 log_info "Resuming slot '$SLOT_NAME'..."
@@ -79,7 +79,7 @@ fi
 
 # Check if slot exists on remote
 if ! ssh "$SLOT_REMOTE_HOST" "[ -d '$REMOTE_PATH' ]" 2>/dev/null; then
-  die "Slot '$SLOT_NAME' not found on remote server. Use 'slot open $SLOT_NAME' to create it."
+  die "Slot '$SLOT_NAME' not found on remote server. Use 'slot create $SLOT_NAME' to create it."
 fi
 
 # Resume Mutagen sync (no wipe)
@@ -168,7 +168,7 @@ REMOTE_GET_NUM
 )
 
 if [ -z "$SLOT_NUM" ] || [ "$SLOT_NUM" = "NO_CONTAINERS" ] || [ "$SLOT_NUM" = "NO_PORT" ]; then
-  die "Could not detect slot number. No containers found. Use 'slot open $SLOT_NAME' for fresh start."
+  die "Could not detect slot number. No containers found. Use 'slot create $SLOT_NAME' for fresh start."
 fi
 
 PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
