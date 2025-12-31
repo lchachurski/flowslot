@@ -148,20 +148,30 @@ for i in {1..30}; do
   sleep 1
 done
 
-# Calculate slot number dynamically by counting existing slots
-# Slot number = count of existing slot directories that have docker-compose files (0-based)
+# Calculate slot number by finding the next available slot
+# Checks existing containers (even stopped) to find used slot numbers
 SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SLOT_NUM
   set -euo pipefail
-  # Count existing slot directories (those with docker-compose.yml or docker-compose.dev.yml)
-  # Exclude the current slot being created
-  COUNT=0
-  for dir in '$SLOT_REMOTE_BASE'/*/; do
-    dirname=\$(basename "\$dir")
-    if [ "\$dirname" != "$SLOT_NAME" ] && [ -f "\$dir/docker-compose.yml" -o -f "\$dir/docker-compose.dev.yml" ]; then
-      COUNT=\$((COUNT + 1))
+  
+  # Find all containers with project prefix and extract their port bindings
+  # Get highest slot number in use (from port bindings)
+  MAX_SLOT=-1
+  
+  for container in \$(docker ps -a --filter "name=${SLOT_PROJECT_NAME}" --format "{{.Names}}" 2>/dev/null); do
+    # Get port bindings from container (works for stopped containers too)
+    PORT=\$(docker inspect "\$container" --format '{{range \$k,\$v := .HostConfig.PortBindings}}{{range \$v}}{{.HostPort}} {{end}}{{end}}' 2>/dev/null | tr ' ' '\n' | grep -E '^7[0-9]{3}\$' | head -1)
+    
+    if [ -n "\$PORT" ]; then
+      # Calculate slot number: (port - 7000) / 100
+      SLOT=\$(( (PORT - $PORT_BASE_START) / $PORT_RANGE ))
+      if [ "\$SLOT" -gt "\$MAX_SLOT" ]; then
+        MAX_SLOT=\$SLOT
+      fi
     fi
   done
-  echo "\$COUNT"
+  
+  # Next available slot is MAX_SLOT + 1 (or 0 if no containers exist)
+  echo \$((MAX_SLOT + 1))
 REMOTE_SLOT_NUM
 )
 PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
