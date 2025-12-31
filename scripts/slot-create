@@ -68,10 +68,17 @@ log_info "Creating slot '$SLOT_NAME' on branch '$BRANCH'..."
     git fetch --all --prune 2>/dev/null || true
   fi
   
-  # Create worktree
+  # Create worktree - always on a named branch, never detached HEAD
+  # 1. Try existing local branch
+  # 2. Try creating branch from remote tracking branch
+  # 3. Try creating new branch from origin/main
+  # 4. Try creating new branch from origin/master
+  # 5. Create new branch from current HEAD
   git worktree add "$LOCAL_PATH" "$BRANCH" 2>/dev/null || \
-  git worktree add "$LOCAL_PATH" -b "$BRANCH" origin/"$BRANCH" 2>/dev/null || \
-  git worktree add "$LOCAL_PATH" HEAD
+  git worktree add "$LOCAL_PATH" -b "$BRANCH" "origin/$BRANCH" 2>/dev/null || \
+  git worktree add "$LOCAL_PATH" -b "$BRANCH" origin/main 2>/dev/null || \
+  git worktree add "$LOCAL_PATH" -b "$BRANCH" origin/master 2>/dev/null || \
+  git worktree add "$LOCAL_PATH" -b "$BRANCH" HEAD
 
 # Symlink .slotconfig into slot directory so commands work from there
 CONFIG_SOURCE="$SLOT_SOURCE_DIR/.slotconfig"
