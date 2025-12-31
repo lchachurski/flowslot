@@ -4,7 +4,7 @@
 
 **The practical infrastructure for vibe coding with Cursor and Claude Code.**
 
-Run multiple parallel AI-assisted development streams — each with isolated context and its own Git branch.
+Run multiple parallel AI-assisted development streams — each with isolated context, infrastructure and Git branch.
 
 ---
 
