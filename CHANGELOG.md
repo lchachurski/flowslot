@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2025-01-01
+
+### Fixed
+- Slot numbering now counts container port bindings instead of directories
+- Works correctly with stopped containers (uses `docker inspect`)
+- First slot correctly gets slot 0 (ports 7000-7099)
+- Prevents conflicts when stale directories exist without containers
+
 ## [2.0.0] - 2025-01-01
 
 ### Changed (Breaking)
