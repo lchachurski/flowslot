@@ -13,7 +13,7 @@ source "$LIB_DIR/common.sh"
 
 show_help() {
   cat << EOF
-Usage: slot server <start|stop|status>
+Usage: slot server <start|stop|status|info>
 
 Manage the EC2 instance for flowslot.
 
@@ -21,6 +21,7 @@ Commands:
   start     Start the EC2 instance
   stop      Stop the EC2 instance
   status    Show instance status
+  info      Show server resource usage (CPU, RAM, disk)
 
 Options:
   -h, --help    Show this help message
@@ -44,7 +45,7 @@ COMMAND="$1"
 
 # Check if instance ID is configured
 if [ -z "${SLOT_AWS_INSTANCE_ID:-}" ] || [ -z "${SLOT_AWS_REGION:-}" ]; then
-  die "SLOT_AWS_INSTANCE_ID and SLOT_AWS_REGION must be set in .slotconfig. Run 'slot init' to configure."
+  die "SLOT_AWS_INSTANCE_ID and SLOT_AWS_REGION must be set in .slotconfig. Run 'slot self init' to configure."
 fi
 
 case "$COMMAND" in
@@ -117,6 +118,235 @@ case "$COMMAND" in
         echo "Tailscale IP: $TAILSCALE_IP"
       fi
     fi
+    ;;
+    
+  info)
+    # Parse --detail flag if present
+    SHOW_DETAIL=false
+    if [ "${2:-}" = "--detail" ] || [ "${2:-}" = "-d" ]; then
+      SHOW_DETAIL=true
+    fi
+    
+    echo ""
+    
+    # Get instance status
+    log_info "EC2 Instance"
+    INSTANCE_DATA=$(aws ec2 describe-instances \
+      --instance-ids "$SLOT_AWS_INSTANCE_ID" \
+      --region "$SLOT_AWS_REGION" \
+      --query 'Reservations[0].Instances[0].[State.Name,PublicIpAddress,PrivateIpAddress,InstanceType]' \
+      --output text)
+    
+    STATE=$(echo "$INSTANCE_DATA" | awk '{print $1}')
+    PUBLIC_IP=$(echo "$INSTANCE_DATA" | awk '{print $2}')
+    PRIVATE_IP=$(echo "$INSTANCE_DATA" | awk '{print $3}')
+    INSTANCE_TYPE=$(echo "$INSTANCE_DATA" | awk '{print $4}')
+    
+    echo "  State:         $STATE"
+    echo "  Instance Type: $INSTANCE_TYPE"
+    echo "  Public IP:     $PUBLIC_IP"
+    echo "  Private IP:    $PRIVATE_IP"
+    echo ""
+    
+    # Check if server is reachable
+    if ! ssh -o ConnectTimeout=5 "$SLOT_REMOTE_HOST" "echo ok" &>/dev/null; then
+      log_warn "Server not reachable via SSH"
+      log_info "Run 'slot server start' to start the server"
+      exit 0
+    fi
+    
+    # Batch all remote data collection in single SSH call
+    log_info "Collecting resource data..."
+    REMOTE_DATA=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
+      set -euo pipefail
+      
+      BASE_DIR="${SLOT_REMOTE_BASE}"
+      
+      # Get Tailscale IP
+      tailscale_ip=\$(tailscale ip -4 2>/dev/null | head -1 || echo "unknown")
+      
+      # System resources
+      cpu_cores=\$(nproc)
+      cpu_load=\$(cat /proc/loadavg | awk '{print \$1}')
+      
+      # Memory in MB
+      mem_total=\$(free -m | awk '/^Mem:/ {print \$2}')
+      mem_used=\$(free -m | awk '/^Mem:/ {print \$3}')
+      mem_free=\$(free -m | awk '/^Mem:/ {print \$7}')  # available column
+      
+      # Disk
+      disk_info=\$(df -BG / | tail -1 | awk '{gsub("G",""); print \$2 "|" \$3 "|" \$4}')
+      
+      # Get all slots
+      slots=\$(ls -1 "\$BASE_DIR" 2>/dev/null | grep -v '^repo.git\$' | grep -v '^\\.env-templates\$' | grep -v '^local-' || true)
+      
+      # Output system info
+      echo "TAILSCALE_IP|\${tailscale_ip}"
+      echo "CPU_CORES|\${cpu_cores}"
+      echo "CPU_LOAD|\${cpu_load}"
+      echo "MEM_TOTAL|\${mem_total}"
+      echo "MEM_USED|\${mem_used}"
+      echo "MEM_FREE|\${mem_free}"
+      echo "DISK_INFO|\${disk_info}"
+      
+      # Per-slot data
+      echo "SLOTS_START"
+      for slot in \$slots; do
+        if [ -d "\$BASE_DIR/\$slot" ]; then
+          # Get containers for this slot's compose project
+          project_name="${SLOT_PROJECT_NAME}-\${slot}"
+          
+          # Count running containers
+          running=\$(docker ps --filter "name=\${project_name}" -q 2>/dev/null | wc -l || echo 0)
+          total=\$(docker ps -a --filter "name=\${project_name}" -q 2>/dev/null | wc -l || echo 0)
+          
+          # Get CPU and memory for this slot's containers
+          if [ "\$running" -gt 0 ]; then
+            # Get stats for all containers in this project
+            stats=\$(docker stats --no-stream --format "{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}" 2>/dev/null | grep "^\${project_name}" || true)
+            
+            # Sum CPU percentages
+            slot_cpu=\$(echo "\$stats" | awk -F'|' '{gsub("%","",\$2); sum+=\$2} END {printf "%.1f", sum}')
+            [ -z "\$slot_cpu" ] && slot_cpu="0.0"
+            
+            # Sum memory (extract first number which is usage in MiB/GiB)
+            slot_mem=0
+            while IFS='|' read -r name cpu mem; do
+              # Extract memory value and unit
+              mem_val=\$(echo "\$mem" | awk '{print \$1}' | sed 's/[^0-9.]//g')
+              mem_unit=\$(echo "\$mem" | awk '{print \$1}' | sed 's/[0-9.]//g')
+              if [ "\$mem_unit" = "GiB" ]; then
+                mem_val=\$(echo "\$mem_val * 1024" | bc 2>/dev/null || echo 0)
+              fi
+              slot_mem=\$(echo "\$slot_mem + \$mem_val" | bc 2>/dev/null || echo 0)
+            done <<< "\$stats"
+            slot_mem=\$(printf "%.0f" "\$slot_mem")
+          else
+            slot_cpu="0.0"
+            slot_mem="0"
+          fi
+          
+          echo "SLOT|\${slot}|\${running}|\${total}|\${slot_cpu}|\${slot_mem}"
+        fi
+      done
+      echo "SLOTS_END"
+      
+      # Container details (if requested)
+      echo "CONTAINERS_START"
+      for slot in \$slots; do
+        if [ -d "\$BASE_DIR/\$slot" ]; then
+          project_name="${SLOT_PROJECT_NAME}-\${slot}"
+          running=\$(docker ps --filter "name=\${project_name}" -q 2>/dev/null | wc -l || echo 0)
+          
+          if [ "\$running" -gt 0 ]; then
+            docker stats --no-stream --format "CONTAINER|\${slot}|{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}" 2>/dev/null | grep "|\${project_name}" || true
+          fi
+        fi
+      done
+      echo "CONTAINERS_END"
+    REMOTE_SCRIPT
+    )
+    
+    # Parse system data
+    TAILSCALE_IP=$(echo "$REMOTE_DATA" | grep "^TAILSCALE_IP|" | cut -d'|' -f2)
+    CPU_CORES=$(echo "$REMOTE_DATA" | grep "^CPU_CORES|" | cut -d'|' -f2)
+    CPU_LOAD=$(echo "$REMOTE_DATA" | grep "^CPU_LOAD|" | cut -d'|' -f2)
+    MEM_TOTAL=$(echo "$REMOTE_DATA" | grep "^MEM_TOTAL|" | cut -d'|' -f2)
+    MEM_USED=$(echo "$REMOTE_DATA" | grep "^MEM_USED|" | cut -d'|' -f2)
+    MEM_FREE=$(echo "$REMOTE_DATA" | grep "^MEM_FREE|" | cut -d'|' -f2)
+    DISK_INFO=$(echo "$REMOTE_DATA" | grep "^DISK_INFO|" | cut -d'|' -f2-)
+    DISK_TOTAL=$(echo "$DISK_INFO" | cut -d'|' -f1)
+    DISK_USED=$(echo "$DISK_INFO" | cut -d'|' -f2)
+    DISK_FREE=$(echo "$DISK_INFO" | cut -d'|' -f3)
+    
+    # Display system resources
+    echo ""
+    log_info "Server Resources"
+    echo "  Tailscale IP:  $TAILSCALE_IP"
+    echo ""
+    echo "  CPU:   ${CPU_LOAD} load avg (${CPU_CORES} cores)"
+    echo "  RAM:   ${MEM_USED} MB / ${MEM_TOTAL} MB used (${MEM_FREE} MB free)"
+    echo "  Disk:  ${DISK_USED} GB / ${DISK_TOTAL} GB used (${DISK_FREE} GB free)"
+    
+    # Parse and display per-slot data
+    echo ""
+    log_info "Per Slot Resources"
+    
+    SLOT_LINES=$(echo "$REMOTE_DATA" | sed -n '/^SLOTS_START$/,/^SLOTS_END$/p' | grep "^SLOT|" || true)
+    
+    if [ -z "$SLOT_LINES" ]; then
+      echo "  No slots found"
+    else
+      # Table header
+      printf "  ${CYAN}%-15s %8s %10s %12s${NC}\n" "SLOT" "CPU" "RAM" "CONTAINERS"
+      printf "  %-15s %8s %10s %12s\n" "---------------" "--------" "----------" "------------"
+      
+      TOTAL_CPU=0
+      TOTAL_MEM=0
+      TOTAL_CONTAINERS=0
+      
+      while IFS='|' read -r _ slot running total cpu mem; do
+        # Format memory
+        if [ "$mem" -ge 1024 ]; then
+          mem_display=$(echo "scale=1; $mem / 1024" | bc)" GB"
+        else
+          mem_display="${mem} MB"
+        fi
+        
+        # Status indicator
+        if [ "$running" -gt 0 ]; then
+          status="${GREEN}${running} running${NC}"
+        else
+          status="${YELLOW}${total} stopped${NC}"
+        fi
+        
+        printf "  %-15s %7s%% %10s %12b\n" "$slot" "$cpu" "$mem_display" "$status"
+        
+        # Accumulate totals
+        TOTAL_CPU=$(echo "$TOTAL_CPU + $cpu" | bc)
+        TOTAL_MEM=$((TOTAL_MEM + mem))
+        TOTAL_CONTAINERS=$((TOTAL_CONTAINERS + running))
+      done <<< "$SLOT_LINES"
+      
+      # Totals row
+      printf "  %-15s %8s %10s %12s\n" "---------------" "--------" "----------" "------------"
+      
+      if [ "$TOTAL_MEM" -ge 1024 ]; then
+        TOTAL_MEM_DISPLAY=$(echo "scale=1; $TOTAL_MEM / 1024" | bc)" GB"
+      else
+        TOTAL_MEM_DISPLAY="${TOTAL_MEM} MB"
+      fi
+      
+      printf "  ${BOLD}%-15s %7s%% %10s %12s${NC}\n" "TOTAL" "$TOTAL_CPU" "$TOTAL_MEM_DISPLAY" "$TOTAL_CONTAINERS"
+    fi
+    
+    # Container details if requested
+    if [ "$SHOW_DETAIL" = true ]; then
+      echo ""
+      log_info "Container Details"
+      
+      CONTAINER_LINES=$(echo "$REMOTE_DATA" | sed -n '/^CONTAINERS_START$/,/^CONTAINERS_END$/p' | grep "^CONTAINER|" || true)
+      
+      if [ -z "$CONTAINER_LINES" ]; then
+        echo "  No running containers"
+      else
+        CURRENT_SLOT=""
+        while IFS='|' read -r _ slot name cpu mem; do
+          if [ "$slot" != "$CURRENT_SLOT" ]; then
+            echo ""
+            echo -e "  ${CYAN}=== Slot: $slot ===${NC}"
+            printf "  %-35s %8s %15s\n" "CONTAINER" "CPU" "MEMORY"
+            CURRENT_SLOT="$slot"
+          fi
+          
+          # Shorten container name (remove project prefix)
+          short_name=$(echo "$name" | sed "s/^${SLOT_PROJECT_NAME}-${slot}-//")
+          printf "  %-35s %8s %15s\n" "$short_name" "$cpu" "$mem"
+        done <<< "$CONTAINER_LINES"
+      fi
+    fi
+    
+    echo ""
     ;;
     
   *)

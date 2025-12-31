@@ -87,7 +87,7 @@ REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
 
 # Check if slot exists on remote
 if ! ssh "$SLOT_REMOTE_HOST" "[ -d '$REMOTE_PATH' ]" 2>/dev/null; then
-  die "Slot '$SLOT_NAME' not found on remote server. Run 'slot open $SLOT_NAME' first."
+  die "Slot '$SLOT_NAME' not found on remote server. Run 'slot create $SLOT_NAME' first."
 fi
 
 # Get slot number by detecting actual port from running containers

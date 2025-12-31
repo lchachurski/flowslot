@@ -54,7 +54,7 @@ REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
 
 # Check if slot exists locally
 if [ ! -d "$LOCAL_PATH" ]; then
-  die "Slot '$SLOT_NAME' not found locally. Run 'slot open $SLOT_NAME' first."
+  die "Slot '$SLOT_NAME' not found locally. Run 'slot create $SLOT_NAME' first."
 fi
 
 # Check if slot exists on remote

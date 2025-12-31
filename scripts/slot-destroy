@@ -1,0 +1,119 @@
+#!/bin/bash
+# Destroy (fully delete) a slot
+# Usage: slot destroy [name]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# Source common functions
+# shellcheck source=lib/common.sh
+source "$LIB_DIR/common.sh"
+
+show_help() {
+  cat << EOF
+Usage: slot destroy [name]
+
+Fully deletes a slot (local worktree + remote directory + containers).
+
+Arguments:
+  name      Slot name (optional if inside a slot directory)
+
+Options:
+  -h, --help    Show this help message
+
+Examples:
+  slot destroy feature-x
+  slot destroy                    # Auto-detects slot name from current directory
+
+WARNING: This permanently deletes all slot data (local and remote).
+EOF
+}
+
+# Handle help flag
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  show_help
+  exit 0
+fi
+
+# Auto-detect slot name if not provided
+if [ -z "${1:-}" ]; then
+  if ! SLOT_NAME=$(detect_slot_name 2>/dev/null); then
+    log_error "Slot name required (not inside a slot directory)"
+    echo ""
+    show_help
+    exit 1
+  fi
+else
+  SLOT_NAME="$1"
+fi
+
+# Validate slot name
+validate_slot_name "$SLOT_NAME"
+
+LOCAL_PATH="$SLOT_SLOTS_DIR/$SLOT_NAME"
+REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
+SYNC_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
+
+# Check if slot exists locally
+if [ ! -d "$LOCAL_PATH" ]; then
+  die "Slot '$SLOT_NAME' not found locally"
+fi
+
+# Confirm deletion
+log_warn "This will permanently delete slot '$SLOT_NAME':"
+echo "  - Local worktree: $LOCAL_PATH"
+echo "  - Remote directory: $SLOT_REMOTE_HOST:$REMOTE_PATH"
+echo "  - All containers and data"
+echo ""
+read -r -p "Are you sure? Type 'yes' to confirm: " CONFIRM
+
+if [ "$CONFIRM" != "yes" ]; then
+  log_info "Cancelled"
+  exit 0
+fi
+
+log_info "Destroying slot '$SLOT_NAME'..."
+
+# Stop containers
+log_info "Stopping containers..."
+ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
+  set -e
+  cd '$REMOTE_PATH' 2>/dev/null || exit 0
+  export COMPOSE_PROJECT_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
+  SLOT_COMPOSE_FILES="${SLOT_COMPOSE_FILES}"
+  
+  # Build compose command from configured files
+  COMPOSE_CMD="docker compose"
+  for f in \$SLOT_COMPOSE_FILES; do
+    COMPOSE_CMD="\$COMPOSE_CMD -f \$f"
+  done
+  
+  # Add flowslot override file if it exists
+  if [ -f 'docker-compose.flowslot.yml' ]; then
+    COMPOSE_CMD="\$COMPOSE_CMD -f docker-compose.flowslot.yml"
+  fi
+  
+  eval "\$COMPOSE_CMD down -v" 2>/dev/null || docker compose down -v 2>/dev/null || true
+REMOTE_SCRIPT
+
+# Terminate Mutagen sync
+log_info "Terminating sync..."
+mutagen sync terminate "$SYNC_NAME" 2>/dev/null || true
+
+# Delete remote directory
+log_info "Deleting remote directory..."
+ssh "$SLOT_REMOTE_HOST" "rm -rf '$REMOTE_PATH'" 2>/dev/null || true
+
+# Delete local worktree
+log_info "Deleting local worktree..."
+rm -rf "$LOCAL_PATH"
+
+# Prune git worktrees
+log_info "Pruning git worktrees..."
+cd "$SLOT_SLOTS_DIR/repo.git"
+git worktree prune
+
+success "Slot '$SLOT_NAME' destroyed"
+

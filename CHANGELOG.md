@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2025-01-01
+
+### Changed (Breaking)
+- **Command renames for clarity:**
+  - `slot open` → `slot create`
+  - `slot close` → `slot stop`
+  - `slot init` → `slot self init`
+  - `slot update` → `slot self upgrade`
+  - `slot version` → `slot self version`
+  - `slot status` → `slot server info`
+- Commands now clearly indicate their context (slot, server, or CLI meta)
+- No backward compatibility - old commands removed
+
+### Added
+- `slot destroy [name]` - Fully delete a slot (local + remote)
+- `slot server info` - Show server resource usage (merged from `slot status`)
+- Auto-detection of slot name for `slot stop` (when inside slot directory)
+
+### Improved
+- Command structure organized into clear categories:
+  - **Slot Lifecycle**: create, stop, resume, destroy
+  - **Slot Operations**: list, info, compose
+  - **Server**: start, stop, status, info
+  - **Meta**: self init, self upgrade, self version
+
 ## [1.7.6] - 2025-12-31
 
 ### Fixed

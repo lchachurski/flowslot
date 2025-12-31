@@ -15,20 +15,27 @@ show_help() {
   cat << EOF
 Usage: slot <command> [args]
 
-Commands:
-  init              Initialize flowslot for this project
-  open <name>       Open/create a slot
+SLOT LIFECYCLE:
+  create <name>     Create a new slot
+  stop [name]       Stop a slot (keeps files)
   resume [name]     Resume an existing slot
-  close <name>      Close/stop a slot
+  destroy [name]    Destroy a slot (full delete)
+
+SLOT OPERATIONS:
   list              List all slots
-  info <name>       Show slot details (URLs, ports, containers)
-  compose <name>    Proxy docker compose commands to remote slot
-  status            Show remote server resource usage
-  update            Update flowslot to latest version
-  version           Show flowslot version
+  info [name]       Show slot details (URLs, ports, containers)
+  compose [name]    Proxy docker compose commands to remote slot
+
+SERVER:
   server start      Start EC2 instance
   server stop       Stop EC2 instance
   server status     Show EC2 instance status
+  server info       Show server resource usage (CPU, RAM, disk)
+
+META:
+  self init         Initialize flowslot for this project
+  self upgrade      Upgrade flowslot to latest version
+  self version      Show flowslot version
 
 Options:
   -h, --help        Show this help message
@@ -45,7 +52,7 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 fi
 
 if [ "${1:-}" = "-v" ] || [ "${1:-}" = "--version" ]; then
-  "$SCRIPT_DIR/slot-version"
+  "$SCRIPT_DIR/slot-self-version"
   exit 0
 fi
 
@@ -56,25 +63,32 @@ if [ -z "${1:-}" ]; then
 fi
 
 case "$1" in
-  init)
-    shift
-    "$SCRIPT_DIR/slot-init" "$@"
-    ;;
-  open)
+  create)
     shift
     if ! CONFIG_FILE=$(find_config); then
-      die ".slotconfig not found. Run 'slot init' first."
+      die ".slotconfig not found. Run 'slot self init' first."
     fi
     # shellcheck source=/dev/null
     set -a  # Auto-export all variables
     source "$CONFIG_FILE"
     set +a
-    "$SCRIPT_DIR/slot-open" "$@"
+    "$SCRIPT_DIR/slot-create" "$@"
+    ;;
+  stop)
+    shift
+    if ! CONFIG_FILE=$(find_config); then
+      die ".slotconfig not found. Run 'slot self init' first."
+    fi
+    # shellcheck source=/dev/null
+    set -a
+    source "$CONFIG_FILE"
+    set +a
+    "$SCRIPT_DIR/slot-stop" "$@"
     ;;
   resume)
     shift
     if ! CONFIG_FILE=$(find_config); then
-      die ".slotconfig not found. Run 'slot init' first."
+      die ".slotconfig not found. Run 'slot self init' first."
     fi
     # shellcheck source=/dev/null
     set -a
@@ -82,21 +96,21 @@ case "$1" in
     set +a
     "$SCRIPT_DIR/slot-resume" "$@"
     ;;
-  close)
+  destroy)
     shift
     if ! CONFIG_FILE=$(find_config); then
-      die ".slotconfig not found. Run 'slot init' first."
+      die ".slotconfig not found. Run 'slot self init' first."
     fi
     # shellcheck source=/dev/null
     set -a
     source "$CONFIG_FILE"
     set +a
-    "$SCRIPT_DIR/slot-close" "$@"
+    "$SCRIPT_DIR/slot-destroy" "$@"
     ;;
   list)
     shift
     if ! CONFIG_FILE=$(find_config); then
-      die ".slotconfig not found. Run 'slot init' first."
+      die ".slotconfig not found. Run 'slot self init' first."
     fi
     # shellcheck source=/dev/null
     set -a
@@ -104,21 +118,10 @@ case "$1" in
     set +a
     "$SCRIPT_DIR/slot-list" "$@"
     ;;
-  status)
-    shift
-    if ! CONFIG_FILE=$(find_config); then
-      die ".slotconfig not found. Run 'slot init' first."
-    fi
-    # shellcheck source=/dev/null
-    set -a
-    source "$CONFIG_FILE"
-    set +a
-    "$SCRIPT_DIR/slot-status" "$@"
-    ;;
   info)
     shift
     if ! CONFIG_FILE=$(find_config); then
-      die ".slotconfig not found. Run 'slot init' first."
+      die ".slotconfig not found. Run 'slot self init' first."
     fi
     # shellcheck source=/dev/null
     set -a
@@ -129,7 +132,7 @@ case "$1" in
   compose)
     shift
     if ! CONFIG_FILE=$(find_config); then
-      die ".slotconfig not found. Run 'slot init' first."
+      die ".slotconfig not found. Run 'slot self init' first."
     fi
     # shellcheck source=/dev/null
     set -a
@@ -146,12 +149,39 @@ case "$1" in
     fi
     "$SCRIPT_DIR/slot-server" "$@"
     ;;
-  update)
+  self)
     shift
-    "$SCRIPT_DIR/slot-update" "$@"
-    ;;
-  version)
-    "$SCRIPT_DIR/slot-version"
+    if [ -z "${1:-}" ]; then
+      log_error "Subcommand required for 'slot self'"
+      echo ""
+      echo "Available subcommands:"
+      echo "  init      Initialize flowslot for this project"
+      echo "  upgrade   Upgrade flowslot to latest version"
+      echo "  version   Show flowslot version"
+      exit 1
+    fi
+    case "$1" in
+      init)
+        shift
+        "$SCRIPT_DIR/slot-self-init" "$@"
+        ;;
+      upgrade)
+        shift
+        "$SCRIPT_DIR/slot-self-upgrade" "$@"
+        ;;
+      version)
+        "$SCRIPT_DIR/slot-self-version"
+        ;;
+      *)
+        log_error "Unknown subcommand: $1"
+        echo ""
+        echo "Available subcommands:"
+        echo "  init      Initialize flowslot for this project"
+        echo "  upgrade   Upgrade flowslot to latest version"
+        echo "  version   Show flowslot version"
+        exit 1
+        ;;
+    esac
     ;;
   *)
     log_error "Unknown command: $1"

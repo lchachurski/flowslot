@@ -1,6 +1,6 @@
 #!/bin/bash
 # Initialize flowslot for a project
-# Usage: slot init
+# Usage: slot self init
 
 set -euo pipefail
 
@@ -13,7 +13,7 @@ source "$LIB_DIR/common.sh"
 
 show_help() {
   cat << EOF
-Usage: slot init
+Usage: slot self init
 
 Initialize flowslot for the current project.
 
@@ -96,7 +96,7 @@ else
   log_warn "Could not create remote directory. Make sure:"
   log_warn "  1. Remote host is accessible: $REMOTE_HOST"
   log_warn "  2. You can run 'slot server start' if EC2 is stopped"
-  log_warn "  Remote directory will be created on first 'slot open'"
+  log_warn "  Remote directory will be created on first 'slot create'"
 fi
 
 # Find and copy .env files from source
@@ -190,5 +190,5 @@ echo "Next steps:"
 echo "  1. Create flowslot-ports.sh with your port definitions"
 echo "  2. Create docker-compose.flowslot.yml with port overrides"
 echo "  3. Run 'slot server start' to start the EC2 instance"
-echo "  4. Run 'slot open <name> [branch]' to create your first slot"
+echo "  4. Run 'slot create <name> [branch]' to create your first slot"
 
