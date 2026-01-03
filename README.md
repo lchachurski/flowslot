@@ -6,6 +6,8 @@
 
 Run multiple parallel AI-assisted development streams — each with isolated context, infrastructure and Git branch.
 
+*Works great for traditional development too — no AI required.*
+
 ---
 
 ## TL;DR
@@ -61,8 +63,6 @@ Local (Cursor + code)                    Remote Server (containers + builds)
 **Each Cursor window has its own isolated AI context.** The AI only sees the code for that slot's branch — no confusion, no cross-contamination.
 
 **Secure by default.** All traffic flows through Tailscale's private mesh — no public ports, no exposure to the internet.
-
-*Works great for traditional development too — no AI required.*
 
 ---
 
