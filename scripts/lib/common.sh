@@ -104,6 +104,24 @@ detect_slot_name() {
   return 1
 }
 
+# SSH wrapper that handles host key changes gracefully
+# Use this instead of raw ssh for all remote commands
+remote_ssh() {
+  ssh -o StrictHostKeyChecking=accept-new \
+      -o UserKnownHostsFile=~/.ssh/known_hosts \
+      -o ConnectTimeout=10 \
+      -o BatchMode=yes \
+      "$@"
+}
+
+# Interactive SSH (for exec commands that need TTY)
+remote_ssh_tty() {
+  ssh -o StrictHostKeyChecking=accept-new \
+      -o UserKnownHostsFile=~/.ssh/known_hosts \
+      -o ConnectTimeout=10 \
+      -t "$@"
+}
+
 # Constants
 readonly PORT_BASE_START=7000
 readonly PORT_RANGE=100
