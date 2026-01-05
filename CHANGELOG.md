@@ -8,6 +8,23 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-01-04
+
+### Added
+- Spot capacity error detection in `slot server start` with helpful error messages
+- Fallback instance types in `create-instance.sh` (t4g.2xlarge → t4g.xlarge → m6g.xlarge → r6g.large)
+- Automatic retry through instance types when Spot capacity is unavailable
+- Spot capacity troubleshooting section in README
+- AGENTS.md for AI assistant guidance
+
+### Changed
+- README reorganized for clarity: added TL;DR, consolidated Quick Start, added use cases
+- Added multi-device testing and coworker sharing to "Why Flowslot?" section
+- Updated cost estimates to reflect fallback instance types ($0.03-0.08/hr)
+
+### Fixed
+- Script no longer hangs on Spot capacity errors - fails fast with actionable guidance
+
 ## [2.0.2] - 2025-01-01
 
 ### Fixed

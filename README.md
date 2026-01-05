@@ -396,6 +396,7 @@ On remote: `/srv/myapp/<slot-name>/` with synced files and running containers.
 | Coworker can't access | Add them to your Tailscale account or share device |
 | Slot exists error on create | Use `slot resume` or `slot destroy` first |
 | Service can't find API | Use `SLOT_REMOTE_IP` instead of `localhost` |
+| "No Spot capacity" on start | See [Spot Capacity Issues](#spot-capacity-issues) below |
 
 ### Debug Commands
 
@@ -405,12 +406,48 @@ ssh ubuntu@<tailscale-ip> 'docker ps -a' # List all containers
 mutagen sync list                        # Check sync status
 ```
 
+### Spot Capacity Issues
+
+**"InsufficientInstanceCapacity"** means AWS has no Spot capacity for your instance type in your Availability Zone. This is temporary — capacity fluctuates.
+
+**When starting an existing instance (`slot server start`):**
+- You cannot resize or move a Spot instance to a different AZ
+- Retry in a few minutes — capacity often opens up
+- If persistent, recreate the instance (see below)
+
+**When creating a new instance (`create-instance.sh`):**
+- Script automatically tries fallback instance types (all 16GB+ RAM):
+  1. t4g.2xlarge (8 vCPU, 32 GB)
+  2. t4g.xlarge (4 vCPU, 16 GB)
+  3. m6g.xlarge (4 vCPU, 16 GB)
+  4. r6g.large (2 vCPU, 16 GB)
+- If all fail, try again later or use a different region
+
+**Recreating an instance:**
+```bash
+# 1. Create new instance (old one can stay stopped)
+cd ~/.flowslot/infra && ./create-instance.sh
+
+# 2. Update your project's .slotconfig with the new:
+#    - SLOT_AWS_INSTANCE_ID
+#    - SLOT_REMOTE_HOST (new Tailscale IP)
+
+# 3. Update Tailscale Split DNS with new nameserver IP
+
+# 4. Your existing slots will need to be recreated on the new server
+```
+
+**Note:** Existing slots are tied to a specific EC2 instance. A new instance means starting fresh with slots.
+
 ---
 
 ## Cost & Auto-Stop
 
-- **Cost:** ~$0.08/hour (t4g.2xlarge Spot in eu-central-1)
-- **Typical day:** $0.64-0.96 for 8-12 hours
+- **Cost:** ~$0.03-0.08/hour depending on instance type (Spot in eu-central-1)
+  - t4g.2xlarge: ~$0.08/hr (8 vCPU, 32 GB)
+  - t4g.xlarge: ~$0.04/hr (4 vCPU, 16 GB)
+  - r6g.large: ~$0.03/hr (2 vCPU, 16 GB)
+- **Typical day:** $0.24-0.96 for 8-12 hours
 - **Auto-stop:** Server shuts down after 2 hours of inactivity
 
 **What counts as activity:** file changes (Mutagen), container CPU usage, SSH connections.
