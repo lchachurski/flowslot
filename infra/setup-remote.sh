@@ -126,26 +126,6 @@ ssh "$REMOTE_USER@$PUBLIC_IP" bash << 'REMOTE_SCRIPT'
   echo "  Cron job configured"
 REMOTE_SCRIPT
 
-# Lock down security group if Tailscale is working
-if [ -n "$TAILSCALE_IP" ]; then
-  log_info "Verifying Tailscale SSH access..."
-  if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$REMOTE_USER@$TAILSCALE_IP" "echo 'Tailscale SSH OK'" 2>/dev/null; then
-    log_info "  Tailscale SSH works!"
-    
-    log_info "Locking down security group (removing public SSH)..."
-    if aws ec2 revoke-security-group-ingress \
-      --group-name flowslot-dev \
-      --protocol tcp --port 22 --cidr 0.0.0.0/0 \
-      --region "${AWS_REGION:-eu-central-1}" 2>/dev/null; then
-      log_info "  Public SSH access removed"
-    else
-      log_warn "  Could not remove SSH rule (may already be removed)"
-    fi
-  else
-    log_warn "  Tailscale SSH not working. Keeping public SSH open for now."
-  fi
-fi
-
 success "Remote setup complete!"
 log_info "Tailscale IP: ${TAILSCALE_IP:-not connected}"
 log_info ""

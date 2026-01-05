@@ -7,41 +7,43 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/../scripts/lib"
 
-# --- Lockfile to prevent multiple instances ---
-LOCKFILE="/tmp/flowslot-create-instance.lock"
+# --- Lockfile using mkdir for atomic locking (works on macOS & Linux) ---
+LOCKDIR="/tmp/flowslot-create-instance.lock"
 
-acquire_lock() {
-  if [ -f "$LOCKFILE" ]; then
-    EXISTING_PID=$(cat "$LOCKFILE" 2>/dev/null || echo "")
-    if [ -n "$EXISTING_PID" ] && kill -0 "$EXISTING_PID" 2>/dev/null; then
-      echo "[ERROR] Another create-instance process is running (PID: $EXISTING_PID)" >&2
-      echo "[ERROR] If this is stale, remove: $LOCKFILE" >&2
+cleanup_lock() {
+  rm -rf "$LOCKDIR"
+}
+
+if ! mkdir "$LOCKDIR" 2>/dev/null; then
+  # Check if the lock is stale (PID no longer running)
+  if [ -f "$LOCKDIR/pid" ]; then
+    OLD_PID=$(cat "$LOCKDIR/pid" 2>/dev/null || echo "")
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+      echo "[ERROR] Another create-instance process is running (PID: $OLD_PID)" >&2
+      echo "[ERROR] If stale, remove: rm -rf $LOCKDIR" >&2
       exit 1
     else
-      # Stale lockfile - remove it
-      rm -f "$LOCKFILE"
+      # Stale lock - clean up and retry
+      rm -rf "$LOCKDIR"
+      mkdir "$LOCKDIR" || { echo "[ERROR] Could not acquire lock" >&2; exit 1; }
     fi
+  else
+    echo "[ERROR] Lock exists but no PID file. Remove: rm -rf $LOCKDIR" >&2
+    exit 1
   fi
-  echo $$ > "$LOCKFILE"
-}
+fi
 
-release_lock() {
-  rm -f "$LOCKFILE"
-}
-
-# Acquire lock and setup cleanup on exit
-acquire_lock
-trap release_lock EXIT INT TERM
+# Write PID and set up cleanup
+echo $$ > "$LOCKDIR/pid"
+trap cleanup_lock EXIT INT TERM
 
 # Source common functions if available
 if [ -f "$LIB_DIR/common.sh" ]; then
-  # shellcheck source=../scripts/lib/common.sh
   source "$LIB_DIR/common.sh"
 else
-  # Fallback if common.sh not found
-  log_info() { echo "[INFO] $*"; }
-  log_warn() { echo "[WARN] $*" >&2; }
-  log_error() { echo "[ERROR] $*" >&2; }
+  log_info() { echo "[INFO] $(date '+%H:%M:%S') $*"; }
+  log_warn() { echo "[WARN] $(date '+%H:%M:%S') $*" >&2; }
+  log_error() { echo "[ERROR] $(date '+%H:%M:%S') $*" >&2; }
   die() { log_error "$*"; exit 1; }
   success() { echo "✓ $*"; }
   require_cmd() { command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"; }
@@ -52,10 +54,8 @@ readonly REGION="${AWS_REGION:-eu-central-1}"
 readonly AMI_ID="ami-01099d45fb386e13b"  # Ubuntu 22.04 LTS arm64 (eu-central-1)
 readonly SECURITY_GROUP_NAME="flowslot-dev"
 readonly VOLUME_SIZE_GB=100
-readonly KEY_NAME="${AWS_KEY_NAME:-}"  # Set your key name or leave empty
-readonly TAILSCALE_AUTH_KEY="${TAILSCALE_AUTH_KEY:-}"  # Tailscale reusable auth key
-
-# Instance type (On-Demand for reliable availability)
+readonly KEY_NAME="${AWS_KEY_NAME:-}"
+readonly TAILSCALE_AUTH_KEY="${TAILSCALE_AUTH_KEY:-}"
 readonly INSTANCE_TYPE="t4g.xlarge"  # 4 vCPU, 16 GB RAM, ARM64
 
 show_help() {
@@ -69,25 +69,14 @@ Prerequisites:
   - Run 'aws sso login' first
 
 Environment variables:
-  AWS_REGION          Region to create instance in (default: eu-central-1)
-  AWS_KEY_NAME        SSH key pair name (optional)
+  AWS_REGION          Region (default: eu-central-1)
+  AWS_KEY_NAME        SSH key pair name (optional but recommended)
   TAILSCALE_AUTH_KEY  Tailscale reusable auth key (required for auto-setup)
 
-Options:
-  -h, --help     Show this help message
-
-Instance type:
-  t4g.xlarge (4 vCPU, 16 GB) - ARM64, cost-effective
-
-Notes:
-  - Uses On-Demand pricing (~$0.15/hr) for reliable availability
-  - Only one instance can be created at a time (lockfile: /tmp/flowslot-create-instance.lock)
-  - Script waits up to 7 minutes for Tailscale to connect
-  - If lockfile is stale, remove it manually
+Instance: t4g.xlarge (4 vCPU, 16 GB) - ~$0.15/hr On-Demand
 EOF
 }
 
-# Parse arguments
 if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
   show_help
   exit 0
@@ -95,23 +84,53 @@ fi
 
 require_cmd aws
 require_cmd jq
-require_cmd base64
 
-log_info "Creating EC2 On-Demand instance in $REGION..."
+log_info "=== Creating EC2 On-Demand instance ==="
+log_info "Region: $REGION"
+log_info "Instance type: $INSTANCE_TYPE"
 
-# Check for Tailscale auth key
+# Check Tailscale auth key
 if [ -z "$TAILSCALE_AUTH_KEY" ]; then
-  log_warn "TAILSCALE_AUTH_KEY not set. Instance will be created but Tailscale won't auto-connect."
-  log_warn "Get a reusable auth key from: https://login.tailscale.com/admin/settings/keys"
-  log_warn "Then run: export TAILSCALE_AUTH_KEY=tskey-auth-xxx"
+  log_warn "TAILSCALE_AUTH_KEY not set!"
+  log_warn "Get one from: https://login.tailscale.com/admin/settings/keys"
+  log_warn "Then: export TAILSCALE_AUTH_KEY=tskey-auth-xxx"
+  echo ""
 fi
 
-# Check AWS authentication
+# Check AWS auth
+log_info "Checking AWS authentication..."
 if ! aws sts get-caller-identity >/dev/null 2>&1; then
   die "AWS not authenticated. Run 'aws sso login' first."
 fi
+log_info "  AWS authenticated ✓"
 
-# Create security group if it doesn't exist
+# Check for existing flowslot-dev instance (prevent duplicates)
+log_info "Checking for existing flowslot instances..."
+EXISTING=$(aws ec2 describe-instances \
+  --region "$REGION" \
+  --filters "Name=tag:Name,Values=flowslot-dev" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+  --query 'Reservations[*].Instances[*].[InstanceId,State.Name]' \
+  --output text 2>/dev/null || echo "")
+
+if [ -n "$EXISTING" ]; then
+  log_error "A flowslot-dev instance already exists!"
+  echo ""
+  echo "Existing instances:"
+  echo "$EXISTING" | while read -r id state; do
+    echo "  $id ($state)"
+  done
+  echo ""
+  echo "Options:"
+  echo "  1. Use the existing instance"
+  echo "  2. Terminate it first:"
+  echo "     aws ec2 terminate-instances --instance-ids <id> --region $REGION"
+  echo ""
+  exit 1
+fi
+log_info "  No existing instances ✓"
+
+# Security group
+log_info "Checking security group..."
 SG_ID=$(aws ec2 describe-security-groups \
   --group-names "$SECURITY_GROUP_NAME" \
   --region "$REGION" \
@@ -119,7 +138,7 @@ SG_ID=$(aws ec2 describe-security-groups \
   --output text 2>/dev/null || echo "")
 
 if [ -z "$SG_ID" ] || [ "$SG_ID" = "None" ]; then
-  log_info "Creating security group: $SECURITY_GROUP_NAME"
+  log_info "  Creating security group: $SECURITY_GROUP_NAME"
   SG_ID=$(aws ec2 create-security-group \
     --group-name "$SECURITY_GROUP_NAME" \
     --description "Flowslot development server" \
@@ -127,37 +146,31 @@ if [ -z "$SG_ID" ] || [ "$SG_ID" = "None" ]; then
     --query 'GroupId' \
     --output text)
   
-  # Allow SSH temporarily (will be locked down after Tailscale setup)
   aws ec2 authorize-security-group-ingress \
     --group-id "$SG_ID" \
-    --protocol tcp \
-    --port 22 \
-    --cidr 0.0.0.0/0 \
+    --protocol tcp --port 22 --cidr 0.0.0.0/0 \
     --region "$REGION" >/dev/null
-  
-  log_info "  Created: $SG_ID"
+  log_info "  Created: $SG_ID ✓"
 else
-  log_info "Security group exists: $SG_ID"
+  log_info "  Exists: $SG_ID ✓"
 fi
 
-# Prepare user-data script
+# Prepare user-data
+log_info "Preparing user-data script..."
 USER_DATA_FILE="$SCRIPT_DIR/user-data.sh"
 if [ ! -f "$USER_DATA_FILE" ]; then
   die "user-data.sh not found at $USER_DATA_FILE"
 fi
 
-# Substitute TAILSCALE_AUTH_KEY placeholder in user-data and base64 encode
-# Use %% as delimiter to avoid conflicts with / in keys
 if [ -n "$TAILSCALE_AUTH_KEY" ]; then
-  USER_DATA=$(sed "s|%%TAILSCALE_AUTH_KEY%%|$TAILSCALE_AUTH_KEY|g" "$USER_DATA_FILE" | base64 -w0)
+  USER_DATA=$(sed "s|%%TAILSCALE_AUTH_KEY%%|$TAILSCALE_AUTH_KEY|g" "$USER_DATA_FILE" | base64 -w0 2>/dev/null || sed "s|%%TAILSCALE_AUTH_KEY%%|$TAILSCALE_AUTH_KEY|g" "$USER_DATA_FILE" | base64)
 else
-  # Still pass user-data but leave placeholder as-is (script will detect and warn)
-  USER_DATA=$(cat "$USER_DATA_FILE" | base64 -w0)
+  USER_DATA=$(cat "$USER_DATA_FILE" | base64 -w0 2>/dev/null || cat "$USER_DATA_FILE" | base64)
 fi
+log_info "  User-data prepared ✓"
 
-# Build launch specification using jq for proper JSON
-log_info "Instance type: $INSTANCE_TYPE"
-
+# Build launch spec
+log_info "Creating instance..."
 LAUNCH_SPEC=$(jq -n \
   --arg ami "$AMI_ID" \
   --arg instance_type "$INSTANCE_TYPE" \
@@ -171,11 +184,7 @@ LAUNCH_SPEC=$(jq -n \
     UserData: $user_data,
     BlockDeviceMappings: [{
       DeviceName: "/dev/sda1",
-      Ebs: {
-        VolumeSize: $volume_size,
-        VolumeType: "gp3",
-        DeleteOnTermination: true
-      }
+      Ebs: { VolumeSize: $volume_size, VolumeType: "gp3", DeleteOnTermination: true }
     }],
     TagSpecifications: [{
       ResourceType: "instance",
@@ -188,35 +197,49 @@ LAUNCH_SPEC=$(jq -n \
 
 if [ -n "$KEY_NAME" ]; then
   LAUNCH_SPEC=$(echo "$LAUNCH_SPEC" | jq --arg key "$KEY_NAME" '. + {KeyName: $key}')
+  log_info "  SSH key: $KEY_NAME"
 fi
 
-# Create the On-Demand instance
+# Create instance
 RUN_RESULT=$(aws ec2 run-instances \
   --cli-input-json "$LAUNCH_SPEC" \
   --region "$REGION" \
   --output json 2>&1) || true
 
-# Check for errors
 if echo "$RUN_RESULT" | grep -qi "error\|exception"; then
   log_error "Failed to create instance:"
   echo "$RUN_RESULT"
   exit 1
 fi
 
-# Extract instance ID
 INSTANCE_ID=$(echo "$RUN_RESULT" | jq -r '.Instances[0].InstanceId' 2>/dev/null || echo "")
-
 if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "null" ]; then
-  log_error "Failed to create instance. Unexpected response:"
+  log_error "Failed to extract instance ID:"
   echo "$RUN_RESULT"
   exit 1
 fi
-log_info "  Instance ID: $INSTANCE_ID"
-log_info "Waiting for instance to be running..."
 
-aws ec2 wait instance-running \
-  --instance-ids "$INSTANCE_ID" \
-  --region "$REGION"
+log_info "  Instance ID: $INSTANCE_ID ✓"
+
+# Wait for running state with status updates
+log_info "Waiting for instance to start..."
+for i in {1..24}; do  # Max 2 minutes
+  STATE=$(aws ec2 describe-instances \
+    --instance-ids "$INSTANCE_ID" \
+    --region "$REGION" \
+    --query 'Reservations[0].Instances[0].State.Name' \
+    --output text 2>/dev/null || echo "unknown")
+  
+  if [ "$STATE" = "running" ]; then
+    log_info "  State: running ✓"
+    break
+  fi
+  
+  if [ $((i % 3)) -eq 0 ]; then
+    log_info "  State: $STATE (waiting...)"
+  fi
+  sleep 5
+done
 
 # Get public IP
 PUBLIC_IP=$(aws ec2 describe-instances \
@@ -225,95 +248,71 @@ PUBLIC_IP=$(aws ec2 describe-instances \
   --query 'Reservations[0].Instances[0].PublicIpAddress' \
   --output text)
 
-success "Instance created successfully!"
-log_info "Instance ID: $INSTANCE_ID"
-log_info "Public IP: $PUBLIC_IP"
-log_info "Region: $REGION"
+log_info "  Public IP: $PUBLIC_IP ✓"
+
+# Wait for Tailscale with verbose status every 15 seconds
+log_info ""
+log_info "=== Waiting for cloud-init & Tailscale (up to 7 min) ==="
 log_info ""
 
-# Wait for cloud-init and Tailscale to complete
-log_info "Waiting for cloud-init to complete and Tailscale to connect..."
-log_info "(this takes 4-6 minutes, max wait: 7 minutes)"
-echo ""
-
 TAILSCALE_IP=""
-MAX_ATTEMPTS=84  # 7 minutes max (84 * 5s = 420s)
-ATTEMPT=0
+START_TIME=$(date +%s)
+MAX_WAIT=420  # 7 minutes
 
-while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-  ATTEMPT=$((ATTEMPT + 1))
+while true; do
+  ELAPSED=$(($(date +%s) - START_TIME))
   
-  # Try to get Tailscale IP via SSH
-  TAILSCALE_IP=$(ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-    -o BatchMode=yes "ubuntu@$PUBLIC_IP" "tailscale ip -4 2>/dev/null" 2>/dev/null || echo "")
-  
-  if [ -n "$TAILSCALE_IP" ]; then
-    echo ""
+  if [ $ELAPSED -ge $MAX_WAIT ]; then
+    log_warn "Timeout after 7 minutes"
     break
   fi
   
-  # Show progress every 10 seconds
-  if [ $((ATTEMPT % 2)) -eq 0 ]; then
-    echo -n "."
+  # Try SSH to get Tailscale IP
+  TAILSCALE_IP=$(ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o BatchMode=yes "ubuntu@$PUBLIC_IP" "tailscale ip -4 2>/dev/null" 2>/dev/null || echo "")
+  
+  if [ -n "$TAILSCALE_IP" ]; then
+    log_info "  Tailscale connected: $TAILSCALE_IP ✓"
+    break
+  fi
+  
+  # Status update every 15 seconds
+  if [ $((ELAPSED % 15)) -lt 5 ]; then
+    MINS=$((ELAPSED / 60))
+    SECS=$((ELAPSED % 60))
+    
+    # Try to get cloud-init status
+    CLOUD_STATUS=$(ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      -o BatchMode=yes "ubuntu@$PUBLIC_IP" "cloud-init status 2>/dev/null | head -1" 2>/dev/null || echo "connecting...")
+    
+    log_info "  [${MINS}m ${SECS}s] $CLOUD_STATUS"
   fi
   
   sleep 5
 done
 
-if [ -z "$TAILSCALE_IP" ]; then
-  echo ""
-  log_warn "Could not get Tailscale IP after 7 minutes."
-  log_warn "Instance may still be initializing. Check manually:"
+# Result
+echo ""
+if [ -n "$TAILSCALE_IP" ]; then
+  success "Instance created successfully!"
+else
+  log_warn "Tailscale not ready yet. Check manually:"
   log_warn "  ssh ubuntu@$PUBLIC_IP 'tailscale ip -4'"
   log_warn "  ssh ubuntu@$PUBLIC_IP 'sudo cat /var/log/user-data.log'"
-  log_warn ""
-  log_warn "NOT locking down SSH - you need to do it manually after getting Tailscale IP:"
-  log_warn "  aws ec2 revoke-security-group-ingress --group-name $SECURITY_GROUP_NAME --protocol tcp --port 22 --cidr 0.0.0.0/0 --region $REGION"
-  TAILSCALE_IP="<pending - check manually>"
-  SSH_LOCKED=false
-else
-  SSH_LOCKED=true
-fi
-
-log_info "Tailscale IP: $TAILSCALE_IP"
-log_info ""
-
-# Only lock down security group if we got Tailscale IP
-if [ "$SSH_LOCKED" = true ]; then
-  log_info "Locking down security group (removing public SSH)..."
-  aws ec2 revoke-security-group-ingress \
-    --group-name "$SECURITY_GROUP_NAME" \
-    --protocol tcp --port 22 --cidr 0.0.0.0/0 \
-    --region "$REGION" 2>/dev/null || log_warn "SSH rule already removed or doesn't exist"
-  success "Public SSH access removed. Access now via Tailscale only."
-  log_info ""
+  TAILSCALE_IP="<pending>"
 fi
 
 echo ""
 echo "============================================================"
-echo "  ACTION REQUIRED: Configure Tailscale Split DNS"
+echo "  NEXT STEPS"
 echo "============================================================"
 echo ""
-echo "  1. Go to: https://login.tailscale.com/admin/dns"
+echo "  1. Configure Tailscale Split DNS:"
+echo "     https://login.tailscale.com/admin/dns"
+echo "     Add nameserver: $TAILSCALE_IP → Restrict to: flowslot.dev"
 echo ""
-echo "  2. Under 'Nameservers', click 'Add nameserver' → 'Custom'"
+echo "  2. Update your .slotconfig:"
+echo "     SLOT_REMOTE_HOST=\"ubuntu@$TAILSCALE_IP\""
+echo "     SLOT_AWS_INSTANCE_ID=\"$INSTANCE_ID\""
 echo ""
-echo "  3. Enter these values:"
-echo "     ┌─────────────────────────────────────────────┐"
-echo "     │  Nameserver:  $TAILSCALE_IP"
-echo "     │  Restrict to: flowslot.dev"
-echo "     └─────────────────────────────────────────────┘"
-echo ""
-echo "  4. Click 'Save'"
-echo ""
-echo "  5. Test DNS resolution:"
-echo "     dig test.flowslot.dev +short"
-echo "     # Expected output: $TAILSCALE_IP"
-echo ""
-echo "  Without this, *.flowslot.dev domains won't resolve!"
 echo "============================================================"
-echo ""
-echo "Update your project's .slotconfig with:"
-echo "  SLOT_REMOTE_HOST=\"ubuntu@$TAILSCALE_IP\""
-echo "  SLOT_AWS_INSTANCE_ID=\"$INSTANCE_ID\""
-echo ""

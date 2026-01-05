@@ -474,23 +474,12 @@ ssh ubuntu@<public-ip> "sudo tailscale up"
 # Follow the URL to authenticate
 ```
 
-Then configure Split DNS and lock down SSH.
+Then configure Split DNS.
 
 ### View Cloud-Init Logs
 
 ```bash
 ssh ubuntu@<ip> 'sudo cat /var/log/user-data.log'
-```
-
-### Lock Down Public SSH
-
-After Tailscale is working:
-
-```bash
-aws ec2 revoke-security-group-ingress \
-  --group-name flowslot-dev \
-  --protocol tcp --port 22 --cidr 0.0.0.0/0 \
-  --region eu-central-1
 ```
 
 ---

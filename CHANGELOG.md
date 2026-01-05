@@ -8,6 +8,18 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-01-05
+
+### Changed
+- **Removed SSH lockdown** — SSH remains open for easier debugging
+- Added check for existing `flowslot-dev` instance before creating new one (prevents duplicates)
+- Improved lockfile mechanism using `mkdir` (works on macOS)
+- More verbose progress updates during cloud-init wait (every 15 seconds)
+
+### Fixed
+- Multiple instances being created when script times out (now prevented by pre-check)
+- Lockfile not working on macOS (flock not available)
+
 ## [2.3.0] - 2026-01-05
 
 ### Changed (Breaking)
