@@ -8,6 +8,16 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-01-05
+
+### Changed
+- Removed lockfile mechanism entirely — AWS instance check is the only duplicate prevention
+- Script is now stateless; AWS is the source of truth
+
+### Removed
+- Local lockfile (`/tmp/flowslot-create-instance.lock`)
+- PID file and cleanup trap
+
 ## [2.4.0] - 2026-01-05
 
 ### Changed

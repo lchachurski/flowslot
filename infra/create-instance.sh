@@ -7,36 +7,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/../scripts/lib"
 
-# --- Lockfile using mkdir for atomic locking (works on macOS & Linux) ---
-LOCKDIR="/tmp/flowslot-create-instance.lock"
-
-cleanup_lock() {
-  rm -rf "$LOCKDIR"
-}
-
-if ! mkdir "$LOCKDIR" 2>/dev/null; then
-  # Check if the lock is stale (PID no longer running)
-  if [ -f "$LOCKDIR/pid" ]; then
-    OLD_PID=$(cat "$LOCKDIR/pid" 2>/dev/null || echo "")
-    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
-      echo "[ERROR] Another create-instance process is running (PID: $OLD_PID)" >&2
-      echo "[ERROR] If stale, remove: rm -rf $LOCKDIR" >&2
-      exit 1
-    else
-      # Stale lock - clean up and retry
-      rm -rf "$LOCKDIR"
-      mkdir "$LOCKDIR" || { echo "[ERROR] Could not acquire lock" >&2; exit 1; }
-    fi
-  else
-    echo "[ERROR] Lock exists but no PID file. Remove: rm -rf $LOCKDIR" >&2
-    exit 1
-  fi
-fi
-
-# Write PID and set up cleanup
-echo $$ > "$LOCKDIR/pid"
-trap cleanup_lock EXIT INT TERM
-
 # Source common functions if available
 if [ -f "$LIB_DIR/common.sh" ]; then
   source "$LIB_DIR/common.sh"
