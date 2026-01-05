@@ -23,7 +23,6 @@ Commands:
   status    Show instance status
   info      Show server resource usage (CPU, RAM, disk)
   recreate  Terminate current instance and create a new one
-            (Use when Spot capacity is unavailable)
 
 Options:
   -h, --help    Show this help message
@@ -60,40 +59,7 @@ case "$COMMAND" in
       --region "$SLOT_AWS_REGION" \
       --output text 2>&1) || true
     
-    # Check for Spot capacity error
-    if echo "$START_OUTPUT" | grep -q "InsufficientInstanceCapacity"; then
-      # Get instance AZ for helpful info
-      AZ=$(aws ec2 describe-instances \
-        --instance-ids "$SLOT_AWS_INSTANCE_ID" \
-        --region "$SLOT_AWS_REGION" \
-        --query 'Reservations[0].Instances[0].Placement.AvailabilityZone' \
-        --output text 2>/dev/null || echo "unknown")
-      
-      INSTANCE_TYPE=$(aws ec2 describe-instances \
-        --instance-ids "$SLOT_AWS_INSTANCE_ID" \
-        --region "$SLOT_AWS_REGION" \
-        --query 'Reservations[0].Instances[0].InstanceType' \
-        --output text 2>/dev/null || echo "unknown")
-      
-      log_error "No Spot capacity available for $INSTANCE_TYPE in $AZ"
-      echo ""
-      echo "This is a temporary AWS Spot capacity issue — capacity fluctuates."
-      echo ""
-      echo "Options:"
-      echo "  1. Retry later — try again in a few minutes"
-      echo "  2. Recreate instance with fallback types:"
-      echo "     cd ~/.flowslot/infra && ./create-instance.sh"
-      echo ""
-      echo "     WARNING: This creates a NEW instance."
-      echo "     Update .slotconfig with the new Instance ID afterward."
-      echo ""
-      echo "Current instance: $SLOT_AWS_INSTANCE_ID"
-      echo "Instance type:    $INSTANCE_TYPE"
-      echo "Availability Zone: $AZ"
-      exit 1
-    fi
-    
-    # Check for other errors
+    # Check for errors
     if echo "$START_OUTPUT" | grep -qi "error"; then
       log_error "Failed to start instance"
       echo "$START_OUTPUT"

@@ -8,6 +8,19 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-01-05
+
+### Changed (Breaking)
+- **Switched from Spot to On-Demand instances**
+  - More reliable — no more "InsufficientInstanceCapacity" errors
+  - Always available on start
+  - Cost: ~$0.15/hr when running (same $0 when stopped)
+  - Simpler create-instance.sh script (no fallback types needed)
+
+### Removed
+- Spot instance fallback logic (t4g.2xlarge → t4g.xlarge → m6g.xlarge → r6g.large)
+- Spot capacity error handling in `slot server start`
+
 ## [2.2.0] - 2026-01-05
 
 ### Changed (Breaking)

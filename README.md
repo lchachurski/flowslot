@@ -106,7 +106,7 @@ aws sso login                        # Authenticate with AWS
 cd ~/.flowslot/infra && ./create-instance.sh
 ```
 
-This creates a t4g.2xlarge ARM Spot instance (~$0.08/hour) with Docker, Tailscale, and dnsmasq pre-configured. Wait 2-3 minutes for setup to complete.
+This creates a t4g.xlarge ARM On-Demand instance (~$0.15/hour when running, $0 when stopped) with Docker, Tailscale, and dnsmasq pre-configured. Wait 2-3 minutes for setup to complete.
 
 **2c. Configure Split DNS**
 
@@ -211,7 +211,7 @@ slot server stop
 | `slot server stop` | Stop EC2 instance |
 | `slot server status` | Show EC2 status |
 | `slot server info` | Show server resources (CPU, RAM, disk) |
-| `slot server recreate` | Terminate and create new instance (for Spot issues) |
+| `slot server recreate` | Terminate and create new instance |
 | `slot self init` | Initialize flowslot for current project |
 | `slot self upgrade` | Upgrade flowslot (add `--remote` for server) |
 | `slot self version` | Show version |
@@ -400,7 +400,6 @@ On remote: `/srv/myapp/<slot-name>/` with synced files and running containers.
 | Coworker can't access | Add them to your Tailscale account or share device |
 | Slot exists error on create | Use `slot resume` or `slot destroy` first |
 | Service can't find API | Use `SLOT_REMOTE_IP` instead of `localhost` |
-| "No Spot capacity" on start | See [Spot Capacity Issues](#spot-capacity-issues) below |
 
 ### Debug Commands
 
@@ -410,50 +409,13 @@ ssh ubuntu@<tailscale-ip> 'docker ps -a' # List all containers
 mutagen sync list                        # Check sync status
 ```
 
-### Spot Capacity Issues
-
-**"InsufficientInstanceCapacity"** means AWS has no Spot capacity for your instance type in your Availability Zone. This is temporary — capacity fluctuates.
-
-**When starting an existing instance (`slot server start`):**
-- You cannot resize or move a Spot instance to a different AZ
-- Retry in a few minutes — capacity often opens up
-- If persistent, recreate the instance (see below)
-
-**When creating a new instance (`create-instance.sh`):**
-- Script automatically tries fallback instance types (all 16GB+ RAM):
-  1. t4g.2xlarge (8 vCPU, 32 GB)
-  2. t4g.xlarge (4 vCPU, 16 GB)
-  3. m6g.xlarge (4 vCPU, 16 GB)
-  4. r6g.large (2 vCPU, 16 GB)
-- If all fail, try again later or use a different region
-
-**Recreating an instance:**
-```bash
-# Option 1: Use the recreate command (recommended)
-export TAILSCALE_AUTH_KEY=tskey-auth-xxx  # Get from Tailscale admin
-slot server recreate
-# This terminates old instance, creates new one, and updates .slotconfig automatically
-
-# Option 2: Manual recreation
-cd ~/.flowslot/infra && ./create-instance.sh
-# Then update .slotconfig with new SLOT_AWS_INSTANCE_ID and SLOT_REMOTE_HOST
-```
-
-After recreation:
-1. Update Tailscale Split DNS with new nameserver IP (if changed)
-2. Recreate your slots: `slot create <name> <branch>`
-
-**Note:** Remote-only data (node_modules, build caches) is lost. Local code is preserved.
-
 ---
 
 ## Cost & Auto-Stop
 
-- **Cost:** ~$0.03-0.08/hour depending on instance type (Spot in eu-central-1)
-  - t4g.2xlarge: ~$0.08/hr (8 vCPU, 32 GB)
-  - t4g.xlarge: ~$0.04/hr (4 vCPU, 16 GB)
-  - r6g.large: ~$0.03/hr (2 vCPU, 16 GB)
-- **Typical day:** $0.24-0.96 for 8-12 hours
+- **Cost:** ~$0.15/hour (t4g.xlarge On-Demand in eu-central-1)
+- **When stopped:** ~$0 (only EBS storage: ~$2.40/month for 30GB)
+- **Typical day:** ~$1.20-1.80 for 8-12 hours
 - **Auto-stop:** Server shuts down after 2 hours of inactivity
 
 **What counts as activity:** file changes (Mutagen), container CPU usage, SSH connections.

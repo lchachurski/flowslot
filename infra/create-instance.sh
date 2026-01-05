@@ -1,5 +1,5 @@
 #!/bin/bash
-# Create EC2 Spot instance for flowslot
+# Create EC2 On-Demand instance for flowslot
 # Requires: aws sso login first
 
 set -euo pipefail
@@ -55,16 +55,14 @@ readonly VOLUME_SIZE_GB=100
 readonly KEY_NAME="${AWS_KEY_NAME:-}"  # Set your key name or leave empty
 readonly TAILSCALE_AUTH_KEY="${TAILSCALE_AUTH_KEY:-}"  # Tailscale reusable auth key
 
-# Instance types to try in order of preference (all ARM64, 16GB+ RAM)
-# Priority: more resources first, all meet minimum 16GB RAM requirement
-readonly INSTANCE_TYPES=("t4g.2xlarge" "t4g.xlarge" "m6g.xlarge" "r6g.large")
-#                        8 vCPU/32GB   4 vCPU/16GB  4 vCPU/16GB  2 vCPU/16GB
+# Instance type (On-Demand for reliable availability)
+readonly INSTANCE_TYPE="t4g.xlarge"  # 4 vCPU, 16 GB RAM, ARM64
 
 show_help() {
   cat << 'EOF'
 Usage: ./create-instance.sh
 
-Creates an AWS EC2 Spot instance for flowslot development.
+Creates an AWS EC2 On-Demand instance for flowslot development.
 
 Prerequisites:
   - AWS CLI configured
@@ -78,17 +76,13 @@ Environment variables:
 Options:
   -h, --help     Show this help message
 
-Instance types (tried in order):
-  1. t4g.2xlarge (8 vCPU, 32 GB) - preferred
-  2. t4g.xlarge  (4 vCPU, 16 GB) - fallback 1
-  3. m6g.xlarge  (4 vCPU, 16 GB) - fallback 2
-  4. r6g.large   (2 vCPU, 16 GB) - fallback 3
+Instance type:
+  t4g.xlarge (4 vCPU, 16 GB) - ARM64, cost-effective
 
 Notes:
+  - Uses On-Demand pricing (~$0.15/hr) for reliable availability
   - Only one instance can be created at a time (lockfile: /tmp/flowslot-create-instance.lock)
   - Script waits up to 7 minutes for Tailscale to connect
-  - If Spot capacity is unavailable, script tries fallback instance types
-  - Minimum 16GB RAM is maintained for all fallback options
   - If lockfile is stale, remove it manually
 EOF
 }
@@ -103,7 +97,7 @@ require_cmd aws
 require_cmd jq
 require_cmd base64
 
-log_info "Creating EC2 Spot instance in $REGION..."
+log_info "Creating EC2 On-Demand instance in $REGION..."
 
 # Check for Tailscale auth key
 if [ -z "$TAILSCALE_AUTH_KEY" ]; then
@@ -161,89 +155,62 @@ else
   USER_DATA=$(cat "$USER_DATA_FILE" | base64 -w0)
 fi
 
-# Try each instance type until one succeeds
-INSTANCE_ID=""
-SELECTED_TYPE=""
+# Build launch specification using jq for proper JSON
+log_info "Instance type: $INSTANCE_TYPE"
 
-for INSTANCE_TYPE in "${INSTANCE_TYPES[@]}"; do
-  log_info "Trying Spot instance: $INSTANCE_TYPE..."
-  
-  # Build launch specification using jq for proper JSON
-  LAUNCH_SPEC=$(jq -n \
-    --arg ami "$AMI_ID" \
-    --arg instance_type "$INSTANCE_TYPE" \
-    --arg sg_id "$SG_ID" \
-    --arg user_data "$USER_DATA" \
-    --argjson volume_size "$VOLUME_SIZE_GB" \
-    '{
-      ImageId: $ami,
-      InstanceType: $instance_type,
-      SecurityGroupIds: [$sg_id],
-      UserData: $user_data,
-      BlockDeviceMappings: [{
-        DeviceName: "/dev/sda1",
-        Ebs: {
-          VolumeSize: $volume_size,
-          VolumeType: "gp3",
-          DeleteOnTermination: true
-        }
-      }],
-      TagSpecifications: [{
-        ResourceType: "instance",
-        Tags: [
-          {Key: "Name", Value: "flowslot-dev"},
-          {Key: "Project", Value: "flowslot"}
-        ]
-      }]
-    }')
+LAUNCH_SPEC=$(jq -n \
+  --arg ami "$AMI_ID" \
+  --arg instance_type "$INSTANCE_TYPE" \
+  --arg sg_id "$SG_ID" \
+  --arg user_data "$USER_DATA" \
+  --argjson volume_size "$VOLUME_SIZE_GB" \
+  '{
+    ImageId: $ami,
+    InstanceType: $instance_type,
+    SecurityGroupIds: [$sg_id],
+    UserData: $user_data,
+    BlockDeviceMappings: [{
+      DeviceName: "/dev/sda1",
+      Ebs: {
+        VolumeSize: $volume_size,
+        VolumeType: "gp3",
+        DeleteOnTermination: true
+      }
+    }],
+    TagSpecifications: [{
+      ResourceType: "instance",
+      Tags: [
+        {Key: "Name", Value: "flowslot-dev"},
+        {Key: "Project", Value: "flowslot"}
+      ]
+    }]
+  }')
 
-  if [ -n "$KEY_NAME" ]; then
-    LAUNCH_SPEC=$(echo "$LAUNCH_SPEC" | jq --arg key "$KEY_NAME" '. + {KeyName: $key}')
-  fi
+if [ -n "$KEY_NAME" ]; then
+  LAUNCH_SPEC=$(echo "$LAUNCH_SPEC" | jq --arg key "$KEY_NAME" '. + {KeyName: $key}')
+fi
 
-  # Try to create the instance
-  RUN_RESULT=$(aws ec2 run-instances \
-    --cli-input-json "$LAUNCH_SPEC" \
-    --instance-market-options '{"MarketType":"spot","SpotOptions":{"SpotInstanceType":"persistent","InstanceInterruptionBehavior":"stop"}}' \
-    --region "$REGION" \
-    --output json 2>&1) || true
-  
-  # Check for capacity errors
-  if echo "$RUN_RESULT" | grep -q "InsufficientInstanceCapacity\|SpotMaxPriceTooLow\|InsufficientFreeAddressesInSubnet"; then
-    log_warn "No Spot capacity for $INSTANCE_TYPE, trying next..."
-    continue
-  fi
-  
-  # Check for other errors
-  if echo "$RUN_RESULT" | grep -qi "error\|exception"; then
-    log_error "Failed to create $INSTANCE_TYPE:"
-    echo "$RUN_RESULT" | head -5
-    continue
-  fi
-  
-  # Success - extract instance ID
-  INSTANCE_ID=$(echo "$RUN_RESULT" | jq -r '.Instances[0].InstanceId' 2>/dev/null || echo "")
-  
-  if [ -n "$INSTANCE_ID" ] && [ "$INSTANCE_ID" != "null" ]; then
-    SELECTED_TYPE="$INSTANCE_TYPE"
-    break
-  fi
-done
+# Create the On-Demand instance
+RUN_RESULT=$(aws ec2 run-instances \
+  --cli-input-json "$LAUNCH_SPEC" \
+  --region "$REGION" \
+  --output json 2>&1) || true
 
-# Check if any instance was created
-if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "null" ]; then
-  log_error "Failed to create instance. No Spot capacity available for any instance type."
-  echo ""
-  echo "Tried: ${INSTANCE_TYPES[*]}"
-  echo ""
-  echo "Options:"
-  echo "  1. Try again later — Spot capacity fluctuates"
-  echo "  2. Try a different region — set AWS_REGION environment variable"
-  echo "  3. Check AWS Spot pricing and capacity dashboard"
+# Check for errors
+if echo "$RUN_RESULT" | grep -qi "error\|exception"; then
+  log_error "Failed to create instance:"
+  echo "$RUN_RESULT"
   exit 1
 fi
 
-log_info "  Instance type: $SELECTED_TYPE"
+# Extract instance ID
+INSTANCE_ID=$(echo "$RUN_RESULT" | jq -r '.Instances[0].InstanceId' 2>/dev/null || echo "")
+
+if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "null" ]; then
+  log_error "Failed to create instance. Unexpected response:"
+  echo "$RUN_RESULT"
+  exit 1
+fi
 log_info "  Instance ID: $INSTANCE_ID"
 log_info "Waiting for instance to be running..."
 
