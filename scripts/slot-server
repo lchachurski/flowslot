@@ -13,7 +13,7 @@ source "$LIB_DIR/common.sh"
 
 show_help() {
   cat << EOF
-Usage: slot server <start|stop|status|info>
+Usage: slot server <start|stop|status|info|recreate>
 
 Manage the EC2 instance for flowslot.
 
@@ -22,6 +22,8 @@ Commands:
   stop      Stop the EC2 instance
   status    Show instance status
   info      Show server resource usage (CPU, RAM, disk)
+  recreate  Terminate current instance and create a new one
+            (Use when Spot capacity is unavailable)
 
 Options:
   -h, --help    Show this help message
@@ -388,6 +390,120 @@ case "$COMMAND" in
       fi
     fi
     
+    echo ""
+    ;;
+    
+  recreate)
+    echo ""
+    log_warn "This will TERMINATE the current EC2 instance and create a new one."
+    log_warn "All remote data (node_modules, build caches, databases) will be LOST."
+    log_warn "Local code is preserved (synced via Mutagen)."
+    echo ""
+    echo "Current instance: $SLOT_AWS_INSTANCE_ID"
+    echo ""
+    read -p "Are you sure? (yes/no): " CONFIRM
+    
+    if [ "$CONFIRM" != "yes" ]; then
+      log_info "Cancelled."
+      exit 0
+    fi
+    
+    # Clean up local Mutagen syncs
+    log_info "Terminating Mutagen syncs..."
+    mutagen sync terminate --all 2>/dev/null || true
+    
+    # Terminate the EC2 instance
+    log_info "Terminating EC2 instance $SLOT_AWS_INSTANCE_ID..."
+    aws ec2 terminate-instances \
+      --instance-ids "$SLOT_AWS_INSTANCE_ID" \
+      --region "$SLOT_AWS_REGION" \
+      --output text > /dev/null
+    
+    log_info "Waiting for instance to terminate..."
+    aws ec2 wait instance-terminated \
+      --instance-ids "$SLOT_AWS_INSTANCE_ID" \
+      --region "$SLOT_AWS_REGION" 2>/dev/null || true
+    
+    success "Instance terminated."
+    echo ""
+    
+    # Check for Tailscale auth key
+    if [ -z "${TAILSCALE_AUTH_KEY:-}" ]; then
+      log_warn "TAILSCALE_AUTH_KEY not set."
+      echo ""
+      echo "Get a reusable auth key from: https://login.tailscale.com/admin/settings/keys"
+      echo "Then run:"
+      echo "  export TAILSCALE_AUTH_KEY=tskey-auth-xxx"
+      echo "  slot server recreate"
+      exit 1
+    fi
+    
+    # Create new instance
+    log_info "Creating new EC2 instance..."
+    FLOWSLOT_DIR="${FLOWSLOT_DIR:-$HOME/.flowslot}"
+    CREATE_SCRIPT="$FLOWSLOT_DIR/infra/create-instance.sh"
+    
+    if [ ! -x "$CREATE_SCRIPT" ]; then
+      die "create-instance.sh not found at $CREATE_SCRIPT"
+    fi
+    
+    # Run create-instance and capture output
+    CREATE_OUTPUT=$("$CREATE_SCRIPT" 2>&1) || {
+      log_error "Failed to create new instance"
+      echo "$CREATE_OUTPUT"
+      exit 1
+    }
+    
+    echo "$CREATE_OUTPUT"
+    
+    # Extract new instance ID and Tailscale IP from output
+    NEW_INSTANCE_ID=$(echo "$CREATE_OUTPUT" | grep -o 'i-[a-z0-9]\{17\}' | head -1 || echo "")
+    NEW_TAILSCALE_IP=$(echo "$CREATE_OUTPUT" | grep -oE '100\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
+    
+    if [ -z "$NEW_INSTANCE_ID" ]; then
+      log_warn "Could not extract new instance ID from output."
+      log_warn "Update .slotconfig manually with the new SLOT_AWS_INSTANCE_ID and SLOT_REMOTE_HOST."
+      exit 0
+    fi
+    
+    # Update .slotconfig
+    SLOTCONFIG="$SLOT_SOURCE_DIR/.slotconfig"
+    if [ -f "$SLOTCONFIG" ]; then
+      log_info "Updating .slotconfig..."
+      
+      # Update instance ID
+      sed -i.bak "s/SLOT_AWS_INSTANCE_ID=.*/SLOT_AWS_INSTANCE_ID=\"$NEW_INSTANCE_ID\"/" "$SLOTCONFIG"
+      
+      # Update remote host if we got Tailscale IP
+      if [ -n "$NEW_TAILSCALE_IP" ]; then
+        sed -i.bak "s/SLOT_REMOTE_HOST=.*/SLOT_REMOTE_HOST=\"ubuntu@$NEW_TAILSCALE_IP\"/" "$SLOTCONFIG"
+      fi
+      
+      rm -f "${SLOTCONFIG}.bak"
+      success "Updated .slotconfig with new instance details."
+    else
+      log_warn ".slotconfig not found at $SLOTCONFIG"
+      echo "Update manually:"
+      echo "  SLOT_AWS_INSTANCE_ID=\"$NEW_INSTANCE_ID\""
+      [ -n "$NEW_TAILSCALE_IP" ] && echo "  SLOT_REMOTE_HOST=\"ubuntu@$NEW_TAILSCALE_IP\""
+    fi
+    
+    echo ""
+    log_info "Server recreated successfully!"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Configure Tailscale Split DNS (if IP changed)"
+    echo "  2. Recreate your slots:"
+    
+    # List local slot directories
+    if [ -d "$SLOT_SLOTS_DIR" ]; then
+      for slot_dir in "$SLOT_SLOTS_DIR"/*/; do
+        slot_name=$(basename "$slot_dir")
+        if [ "$slot_name" != "repo.git" ] && [ "$slot_name" != ".env-templates" ]; then
+          echo "     slot destroy $slot_name && slot create $slot_name <branch>"
+        fi
+      done
+    fi
     echo ""
     ;;
     

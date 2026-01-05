@@ -209,6 +209,7 @@ slot server stop
 | `slot server stop` | Stop EC2 instance |
 | `slot server status` | Show EC2 status |
 | `slot server info` | Show server resources (CPU, RAM, disk) |
+| `slot server recreate` | Terminate and create new instance (for Spot issues) |
 | `slot self init` | Initialize flowslot for current project |
 | `slot self upgrade` | Upgrade flowslot (add `--remote` for server) |
 | `slot self version` | Show version |
@@ -425,19 +426,21 @@ mutagen sync list                        # Check sync status
 
 **Recreating an instance:**
 ```bash
-# 1. Create new instance (old one can stay stopped)
+# Option 1: Use the recreate command (recommended)
+export TAILSCALE_AUTH_KEY=tskey-auth-xxx  # Get from Tailscale admin
+slot server recreate
+# This terminates old instance, creates new one, and updates .slotconfig automatically
+
+# Option 2: Manual recreation
 cd ~/.flowslot/infra && ./create-instance.sh
-
-# 2. Update your project's .slotconfig with the new:
-#    - SLOT_AWS_INSTANCE_ID
-#    - SLOT_REMOTE_HOST (new Tailscale IP)
-
-# 3. Update Tailscale Split DNS with new nameserver IP
-
-# 4. Your existing slots will need to be recreated on the new server
+# Then update .slotconfig with new SLOT_AWS_INSTANCE_ID and SLOT_REMOTE_HOST
 ```
 
-**Note:** Existing slots are tied to a specific EC2 instance. A new instance means starting fresh with slots.
+After recreation:
+1. Update Tailscale Split DNS with new nameserver IP (if changed)
+2. Recreate your slots: `slot create <name> <branch>`
+
+**Note:** Remote-only data (node_modules, build caches) is lost. Local code is preserved.
 
 ---
 

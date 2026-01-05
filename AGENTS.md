@@ -43,6 +43,7 @@ slot server start            # Start EC2 instance
 slot server stop             # Stop EC2 instance
 slot server status           # Show EC2 status
 slot server info             # Show resources (CPU, RAM, disk)
+slot server recreate         # Terminate and create new instance (for Spot issues)
 ```
 
 ### Meta
