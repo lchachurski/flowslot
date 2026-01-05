@@ -8,10 +8,11 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
-## [2.0.3] - 2026-01-04
+## [2.1.0] - 2026-01-05
 
 ### Added
 - `slot server recreate` command to terminate and create new instance when Spot capacity unavailable
+- `remote_ssh` helper function for automatic host key handling after server recreate
 - Spot capacity error detection in `slot server start` with helpful error messages
 - Fallback instance types in `create-instance.sh` (t4g.2xlarge → t4g.xlarge → m6g.xlarge → r6g.large)
 - Automatic retry through instance types when Spot capacity is unavailable
