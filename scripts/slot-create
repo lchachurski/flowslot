@@ -19,14 +19,14 @@ Creates a new development slot.
 
 Arguments:
   name      Slot name (lowercase alphanumeric with hyphens only)
-  branch    Git branch name (default: main)
+  branch    Git branch name (default: same as slot name)
 
 Options:
   -h, --help    Show this help message
 
 Examples:
-  slot create auth main
-  slot create feature-branch feat/new-ui
+  slot create auth
+  slot create feature-x feat/new-ui
 EOF
 }
 
@@ -44,7 +44,7 @@ if [ -z "${1:-}" ]; then
 fi
 
 SLOT_NAME="$1"
-BRANCH="${2:-main}"
+BRANCH="${2:-$SLOT_NAME}"  # Default branch = slot name
 
 # Validate slot name
 validate_slot_name "$SLOT_NAME"
@@ -58,27 +58,49 @@ if [ -d "$LOCAL_PATH" ]; then
 fi
 
 log_info "Creating slot '$SLOT_NAME' on branch '$BRANCH'..."
-  
-  # Setup local worktree from the bare repo
-  log_info "Setting up local worktree..."
-  cd "$SLOT_SLOTS_DIR/repo.git"
-  
-  # Fetch if origin exists
-  if git remote get-url origin >/dev/null 2>&1; then
-    git fetch --all --prune 2>/dev/null || true
+
+# Get repo URL from source directory
+cd "$SLOT_SOURCE_DIR"
+if ! REPO_URL=$(git remote get-url origin 2>/dev/null); then
+  die "No 'origin' remote found in source directory"
+fi
+
+# Create slots directory if needed
+mkdir -p "$SLOT_SLOTS_DIR"
+
+# Clone the repository (full clone for simplicity)
+log_info "Cloning repository..."
+git clone --quiet "$REPO_URL" "$LOCAL_PATH"
+
+cd "$LOCAL_PATH"
+
+# Fetch all branches
+git fetch --all --quiet
+
+# Create or checkout the branch
+if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+  # Remote branch exists - check it out
+  log_info "Checking out existing branch '$BRANCH'..."
+  git checkout -B "$BRANCH" "origin/$BRANCH" --quiet
+elif git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+  # Local branch exists
+  log_info "Checking out local branch '$BRANCH'..."
+  git checkout "$BRANCH" --quiet
+else
+  # Branch doesn't exist - create from main/master
+  log_info "Creating new branch '$BRANCH'..."
+  if git show-ref --verify --quiet refs/remotes/origin/main; then
+    git checkout -b "$BRANCH" origin/main --quiet
+  elif git show-ref --verify --quiet refs/remotes/origin/master; then
+    git checkout -b "$BRANCH" origin/master --quiet
+  else
+    git checkout -b "$BRANCH" --quiet
   fi
   
-  # Create worktree - always on a named branch, never detached HEAD
-  # 1. Try existing local branch
-  # 2. Try creating branch from remote tracking branch
-  # 3. Try creating new branch from origin/main
-  # 4. Try creating new branch from origin/master
-  # 5. Create new branch from current HEAD
-  git worktree add "$LOCAL_PATH" "$BRANCH" 2>/dev/null || \
-  git worktree add "$LOCAL_PATH" -b "$BRANCH" "origin/$BRANCH" 2>/dev/null || \
-  git worktree add "$LOCAL_PATH" -b "$BRANCH" origin/main 2>/dev/null || \
-  git worktree add "$LOCAL_PATH" -b "$BRANCH" origin/master 2>/dev/null || \
-  git worktree add "$LOCAL_PATH" -b "$BRANCH" HEAD
+  # Push the new branch
+  log_info "Pushing new branch to origin..."
+  git push -u origin "$BRANCH" --quiet
+fi
 
 # Symlink .slotconfig into slot directory so commands work from there
 CONFIG_SOURCE="$SLOT_SOURCE_DIR/.slotconfig"
@@ -101,7 +123,7 @@ ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SETUP
   mkdir -p '$REMOTE_PATH'
 REMOTE_SETUP
 
-# Copy environment files from templates to local worktree
+# Copy environment files from templates to local slot
 log_info "Copying environment files..."
 if [ -d "$SLOT_TEMPLATE_DIR" ]; then
   find "$SLOT_TEMPLATE_DIR" -name ".env*" -type f | while read -r template_file; do

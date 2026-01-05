@@ -19,9 +19,8 @@ Initialize flowslot for the current project.
 
 This will:
   1. Create .slotconfig with project settings
-  2. Set up slots directory for worktrees
+  2. Set up slots directory
   3. Copy .env files to templates
-  4. Clone bare repository
 
 Options:
   -h, --help    Show this help message
@@ -49,7 +48,7 @@ if ! REPO_URL=$(git remote get-url origin 2>/dev/null); then
 fi
 
 # Prompt for slots directory (default: sibling)
-log_info "Slots directory (where worktrees will live):"
+log_info "Slots directory (where slot clones will live):"
 echo "  Default: ../${PROJECT_NAME}-slots"
 read -r -p "Enter path [../${PROJECT_NAME}-slots]: " SLOTS_DIR_INPUT
 SLOTS_DIR="${SLOTS_DIR_INPUT:-../${PROJECT_NAME}-slots}"
@@ -113,16 +112,6 @@ else
     cp "$env_file" "$dest_file"
     echo "  Copied: $rel_path"
   done
-fi
-
-# Clone bare repository locally
-echo ""
-log_info "Cloning bare repository..."
-if [ -d "$SLOTS_DIR/repo.git" ]; then
-  log_info "Bare repo exists, fetching updates..."
-  (cd "$SLOTS_DIR/repo.git" && git fetch --all --prune)
-else
-  git clone --bare "$REPO_URL" "$SLOTS_DIR/repo.git"
 fi
 
 # Detect compose files

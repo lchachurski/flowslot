@@ -19,8 +19,9 @@ cd ~/your-project && slot self init              # One-time: init project
 
 # Daily
 slot server start                    # Start EC2
-slot create feature-x feat/new-ui    # Create a slot
-cursor ~/your-project-slots/feature-x # Open in Cursor
+slot create auth                     # Creates slot "auth" on branch "auth"
+slot create feature feat/new-ui      # Or: slot + custom branch
+cursor ~/your-project-slots/auth     # Open in Cursor
 # Access from any device: http://web.your-project.flowslot.dev:7001
 slot server stop                     # End of day
 ```
@@ -125,7 +126,8 @@ slot self init
 
 ```bash
 slot server start
-slot create my-feature main
+slot create my-feature              # Branch defaults to "my-feature"
+# OR: slot create my-feature main   # Explicit branch name
 ```
 
 **Done!** Open `~/development/your-project-slots/my-feature/` in Cursor.
@@ -198,7 +200,7 @@ slot server stop
 
 | Command | What it does |
 |---------|--------------|
-| `slot create <name> [branch]` | Create new slot on a branch |
+| `slot create <name> [branch]` | Create new slot (branch defaults to slot name) |
 | `slot stop [name]` | Stop containers (keeps files) |
 | `slot resume [name]` | Resume existing slot |
 | `slot destroy [name]` | Delete slot completely |
@@ -363,8 +365,7 @@ See [templates/](templates/) for complete examples.
 │   ├── docker-compose.flowslot.yml
 │   └── flowslot-ports.sh
 │
-└── myapp-slots/                # Slot worktrees (created by flowslot)
-    ├── repo.git/               # Bare clone
+└── myapp-slots/                # Slot clones (created by flowslot)
     ├── auth/                   # Slot: auth → Open in Cursor Window 1
     ├── feature/                # Slot: feature → Open in Cursor Window 2
     └── experiment/             # Slot: experiment → Open in Cursor Window 3
@@ -376,12 +377,14 @@ On remote: `/srv/myapp/<slot-name>/` with synced files and running containers.
 
 | Layer | What | Why |
 |-------|------|-----|
-| **Git Worktrees** | Each slot is a local checkout on its own branch | Edit different branches simultaneously |
-| **Mutagen Sync** | Real-time bidirectional file sync (~100ms) | Save locally, see changes instantly |
-| **Dynamic Ports** | Slot 0: 7000-7099, Slot 1: 7100-7199, etc. | No port conflicts |
+| **Git Clones** | Each slot is a full repository clone on its own branch | Standard Git workflow — no detached HEAD issues |
+| **Mutagen Sync** | Real-time bidirectional file sync (~100ms) | Save locally, see changes instantly on remote |
+| **Dynamic Ports** | Slot 0: 7000-7099, Slot 1: 7100-7199, etc. | No port conflicts between slots |
 | **Tailscale** | Private mesh network (100.x.y.z) | Secure access, no public ports |
 | **dnsmasq** | Wildcard DNS (`*.flowslot.dev`) | Human-readable URLs |
 | **Docker Compose** | Your existing setup with port overrides | Same containers, isolated per slot |
+
+**Why clones instead of worktrees?** Git worktrees can cause "detached HEAD" issues and confuse IDEs. Full clones mean each slot is a normal Git repository — `git push`, `git pull`, `git checkout` all work as expected.
 
 ---
 

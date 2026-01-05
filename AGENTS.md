@@ -5,7 +5,7 @@ This file helps AI assistants (Cursor, Claude Code, etc.) understand and operate
 ## What is Flowslot?
 
 Flowslot manages isolated development environments ("slots") on a remote EC2 server. Each slot:
-- Has its own Git branch (via worktree)
+- Has its own Git branch (full repository clone)
 - Runs its own Docker containers with unique ports
 - Syncs files in real-time via Mutagen
 - Is accessible via Tailscale private network
@@ -14,7 +14,7 @@ Flowslot manages isolated development environments ("slots") on a remote EC2 ser
 
 | Concept | Description |
 |---------|-------------|
-| **Slot** | An isolated dev environment = local worktree + remote containers |
+| **Slot** | An isolated dev environment = local repository clone + remote containers |
 | **Slot directory** | Local path: `~/project-slots/<slot-name>/` |
 | **Remote path** | `/srv/<project>/<slot-name>/` on EC2 |
 | **Port range** | Slot 0: 7000-7099, Slot 1: 7100-7199, etc. |
@@ -24,7 +24,7 @@ Flowslot manages isolated development environments ("slots") on a remote EC2 ser
 
 ### Slot Lifecycle
 ```bash
-slot create <name> [branch]  # Create new slot
+slot create <name> [branch]  # Create new slot (branch defaults to slot name)
 slot stop [name]             # Stop containers (keeps files)
 slot resume [name]           # Resume existing slot
 slot destroy [name]          # Delete slot completely

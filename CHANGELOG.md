@@ -8,6 +8,27 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-01-05
+
+### Changed (Breaking)
+- **Slots now use simple clones instead of Git worktrees**
+  - Eliminates detached HEAD issues forever
+  - Each slot is a full, independent repository clone
+  - Standard Git workflow: `git checkout`, `git push`, `git pull` work normally
+  - No more bare repository (`repo.git`) needed
+  - Simpler mental model: each slot = standalone project folder
+- Branch defaults to slot name if not specified (e.g., `slot create auth` → branch `auth`)
+
+### Removed
+- Bare repository cloning during `slot self init`
+- Git worktree pruning during `slot destroy`
+
+### Benefits
+- No more "detached HEAD" confusion
+- IDEs like Cursor recognize the repository correctly
+- Easier to debug Git issues (each slot is independent)
+- Can push commits from any slot without worrying about branch state
+
 ## [2.1.0] - 2026-01-05
 
 ### Added
