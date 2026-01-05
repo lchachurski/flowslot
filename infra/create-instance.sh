@@ -75,19 +75,20 @@ fi
 log_info "  AWS authenticated ✓"
 
 # Check for existing flowslot-dev instance (prevent duplicates)
+# Use security group filter - more reliable than tags since tags may be missing from old scripts
 log_info "Checking for existing flowslot instances..."
 EXISTING=$(aws ec2 describe-instances \
   --region "$REGION" \
-  --filters "Name=tag:Name,Values=flowslot-dev" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
-  --query 'Reservations[*].Instances[*].[InstanceId,State.Name]' \
+  --filters "Name=instance.group-name,Values=$SECURITY_GROUP_NAME" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+  --query 'Reservations[*].Instances[*].[InstanceId,State.Name,Tags[?Key==`Name`].Value|[0]]' \
   --output text 2>/dev/null || echo "")
 
 if [ -n "$EXISTING" ]; then
-  log_error "A flowslot-dev instance already exists!"
+  log_error "A flowslot instance already exists (using security group $SECURITY_GROUP_NAME)!"
   echo ""
   echo "Existing instances:"
-  echo "$EXISTING" | while read -r id state; do
-    echo "  $id ($state)"
+  echo "$EXISTING" | while read -r id state name; do
+    echo "  $id ($state) ${name:-<no name tag>}"
   done
   echo ""
   echo "Options:"
@@ -195,7 +196,7 @@ log_info "  Instance ID: $INSTANCE_ID ✓"
 log_info "Waiting for instance to start..."
 for i in {1..24}; do  # Max 2 minutes
   STATE=$(aws ec2 describe-instances \
-    --instance-ids "$INSTANCE_ID" \
+  --instance-ids "$INSTANCE_ID" \
     --region "$REGION" \
     --query 'Reservations[0].Instances[0].State.Name' \
     --output text 2>/dev/null || echo "unknown")
