@@ -8,6 +8,29 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-01-06
+
+### Added
+- **Automatic Split DNS updates** — Tailscale Split DNS is now updated automatically when creating a new instance
+  - Uses Tailscale API to update `flowslot.dev → <new Tailscale IP>`
+  - No more manual DNS configuration after `slot server recreate`
+- **Centralized config file** (`~/.flowslot/config.local`)
+  - All API keys and configuration in one place
+  - Automatically sourced by all slot commands
+  - Gitignored for security
+- `config.example` template for easy setup
+
+### Changed
+- Main `slot` command now sources `config.local` at startup
+- Improved error messages in `slot server recreate` to mention config.local option
+- Instance detection now uses security group filter (more reliable than tag filter)
+
+### Configuration
+New variables in `config.local`:
+- `TS_API_KEY` — Tailscale API key for Split DNS automation
+- `TS_TAILNET` — Your tailnet name (e.g., `example.ts.net`)
+- `TS_SPLIT_DOMAIN` — Domain for Split DNS (default: `flowslot.dev`)
+
 ## [2.4.1] - 2026-01-05
 
 ### Changed

@@ -88,16 +88,29 @@ git clone https://github.com/lchachurski/flowslot.git ~/.flowslot && \
   source ~/.zshrc
 ```
 
-### Step 2: Create Server
+### Step 2: Configure Flowslot
 
-**2a. Get Tailscale Auth Key**
+**2a. Create Config File**
 
-1. Go to https://login.tailscale.com/admin/settings/keys
-2. Create key: **Reusable** = Yes, **Expiry** = 90 days
-3. Export it:
-   ```bash
-   export TAILSCALE_AUTH_KEY=tskey-auth-xxx
-   ```
+```bash
+cp ~/.flowslot/config.example ~/.flowslot/config.local
+```
+
+Edit `config.local` with your values:
+
+```bash
+# Required: Get from https://login.tailscale.com/admin/settings/keys
+# Create a "Reusable" auth key
+export TAILSCALE_AUTH_KEY="tskey-auth-xxx"
+
+# Optional: For automatic Split DNS updates
+# Create an "API access token" from the same page
+export TS_API_KEY="tskey-api-xxx"
+export TS_TAILNET="your-tailnet.ts.net"
+
+# Optional: AWS SSH key name
+export AWS_KEY_NAME="flowslot-dev"
+```
 
 **2b. Create EC2 Instance**
 
@@ -110,6 +123,9 @@ This creates a t4g.xlarge ARM On-Demand instance (~$0.15/hour when running, $0 w
 
 **2c. Configure Split DNS**
 
+If you added `TS_API_KEY` to your config, Split DNS is updated automatically! ✨
+
+Otherwise, manually configure:
 1. Get the Tailscale IP from the script output
 2. Go to https://login.tailscale.com/admin/dns
 3. Add nameserver: `<tailscale-ip>` → Restrict to `flowslot.dev`
