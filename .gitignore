@@ -1,0 +1,8 @@
+# Local configuration (contains API keys - never commit!)
+config.local
+*.local
+
+# Environment files
+.env
+.env.*
+

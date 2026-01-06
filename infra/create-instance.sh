@@ -6,6 +6,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/../scripts/lib"
+CONFIG_FILE="$SCRIPT_DIR/../config.local"
+
+# Source local config if available (contains API keys)
+if [ -f "$CONFIG_FILE" ]; then
+  # shellcheck source=/dev/null
+  source "$CONFIG_FILE"
+fi
 
 # Source common functions if available
 if [ -f "$LIB_DIR/common.sh" ]; then
@@ -28,6 +35,11 @@ readonly KEY_NAME="${AWS_KEY_NAME:-}"
 readonly TAILSCALE_AUTH_KEY="${TAILSCALE_AUTH_KEY:-}"
 readonly INSTANCE_TYPE="t4g.xlarge"  # 4 vCPU, 16 GB RAM, ARM64
 
+# Tailscale API for Split DNS automation
+readonly TS_API_KEY="${TS_API_KEY:-}"
+readonly TS_TAILNET="${TS_TAILNET:-}"
+readonly TS_SPLIT_DOMAIN="${TS_SPLIT_DOMAIN:-flowslot.dev}"
+
 show_help() {
   cat << 'EOF'
 Usage: ./create-instance.sh
@@ -42,6 +54,9 @@ Environment variables:
   AWS_REGION          Region (default: eu-central-1)
   AWS_KEY_NAME        SSH key pair name (optional but recommended)
   TAILSCALE_AUTH_KEY  Tailscale reusable auth key (required for auto-setup)
+  TS_API_KEY          Tailscale API key for Split DNS automation (optional)
+  TS_TAILNET          Tailscale tailnet name, e.g. "example.ts.net" (optional)
+  TS_SPLIT_DOMAIN     Domain for Split DNS (default: flowslot.dev)
 
 Instance: t4g.xlarge (4 vCPU, 16 GB) - ~$0.15/hr On-Demand
 EOF
@@ -264,8 +279,42 @@ done
 
 # Result
 echo ""
+SPLIT_DNS_UPDATED=false
 if [ -n "$TAILSCALE_IP" ]; then
   success "Instance created successfully!"
+  
+  # Auto-update Split DNS if API key is configured
+  if [ -n "$TS_API_KEY" ] && [ -n "$TS_TAILNET" ]; then
+    log_info ""
+    log_info "Updating Tailscale Split DNS..."
+    
+    # Get current config to determine if entry exists
+    CURRENT_DNS=$(curl -s "https://api.tailscale.com/api/v2/tailnet/$TS_TAILNET/dns/split-dns" \
+      -u "$TS_API_KEY:" 2>/dev/null || echo "{}")
+    
+    if echo "$CURRENT_DNS" | jq -e ".\"$TS_SPLIT_DOMAIN\"" > /dev/null 2>&1; then
+      log_info "  Updating existing $TS_SPLIT_DOMAIN entry..."
+    else
+      log_info "  Adding new $TS_SPLIT_DOMAIN entry..."
+    fi
+    
+    # PATCH to add/update the domain (merges with existing config)
+    RESULT=$(curl -s -X PATCH "https://api.tailscale.com/api/v2/tailnet/$TS_TAILNET/dns/split-dns" \
+      -u "$TS_API_KEY:" \
+      -H "Content-Type: application/json" \
+      -d "{\"$TS_SPLIT_DOMAIN\": [\"$TAILSCALE_IP\"]}" 2>/dev/null || echo "{}")
+    
+    # Verify the update
+    VERIFY=$(curl -s "https://api.tailscale.com/api/v2/tailnet/$TS_TAILNET/dns/split-dns" \
+      -u "$TS_API_KEY:" 2>/dev/null | jq -r ".\"$TS_SPLIT_DOMAIN\"[0]" 2>/dev/null || echo "")
+    
+    if [ "$VERIFY" = "$TAILSCALE_IP" ]; then
+      log_info "  Split DNS updated: $TS_SPLIT_DOMAIN → $TAILSCALE_IP ✓"
+      SPLIT_DNS_UPDATED=true
+    else
+      log_warn "  Split DNS update may have failed. Please check manually."
+    fi
+  fi
 else
   log_warn "Tailscale not ready yet. Check manually:"
   log_warn "  ssh ubuntu@$PUBLIC_IP 'tailscale ip -4'"
@@ -278,11 +327,17 @@ echo "============================================================"
 echo "  NEXT STEPS"
 echo "============================================================"
 echo ""
-echo "  1. Configure Tailscale Split DNS:"
-echo "     https://login.tailscale.com/admin/dns"
-echo "     Add nameserver: $TAILSCALE_IP → Restrict to: flowslot.dev"
-echo ""
-echo "  2. Update your .slotconfig:"
+if [ "$SPLIT_DNS_UPDATED" = "false" ]; then
+  echo "  1. Configure Tailscale Split DNS:"
+  echo "     https://login.tailscale.com/admin/dns"
+  echo "     Add nameserver: $TAILSCALE_IP → Restrict to: $TS_SPLIT_DOMAIN"
+  echo ""
+  echo "  2. Update your .slotconfig:"
+else
+  echo "  1. Split DNS already configured: $TS_SPLIT_DOMAIN → $TAILSCALE_IP ✓"
+  echo ""
+  echo "  2. Update your .slotconfig:"
+fi
 echo "     SLOT_REMOTE_HOST=\"ubuntu@$TAILSCALE_IP\""
 echo "     SLOT_AWS_INSTANCE_ID=\"$INSTANCE_ID\""
 echo ""
