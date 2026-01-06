@@ -13,9 +13,10 @@ Run multiple parallel AI-assisted development streams — each with isolated con
 ## TL;DR
 
 ```bash
-# After prerequisites (Mutagen, Tailscale, AWS CLI)
-cd ~/.flowslot/infra && ./create-instance.sh    # One-time: create server
-cd ~/your-project && slot self init              # One-time: init project
+# One-time setup (after Mutagen, Tailscale, AWS CLI)
+cp ~/.flowslot/config.example ~/.flowslot/config.local  # Add your API keys
+cd ~/.flowslot/infra && ./create-instance.sh             # Create server
+cd ~/your-project && slot self init                      # Init project
 
 # Daily
 slot server start                    # Start EC2
@@ -483,14 +484,14 @@ Update `AMI_ID` in `create-instance.sh`.
 
 ### Manual Tailscale Auth
 
-If you didn't provide `TAILSCALE_AUTH_KEY`:
+If you didn't add `TAILSCALE_AUTH_KEY` to `~/.flowslot/config.local`:
 
 ```bash
 ssh ubuntu@<public-ip> "sudo tailscale up"
 # Follow the URL to authenticate
 ```
 
-Then configure Split DNS.
+Then configure Split DNS manually (or add `TS_API_KEY` to config.local for auto-updates).
 
 ### View Cloud-Init Logs
 
