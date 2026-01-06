@@ -1,0 +1,32 @@
+# Flowslot Configuration
+# Copy this file to config.local and fill in your values:
+#   cp config.example config.local
+#
+# config.local is gitignored - your secrets stay safe
+
+# =============================================================================
+# REQUIRED: Tailscale auth key for joining devices to tailnet
+# Get from: https://login.tailscale.com/admin/settings/keys
+# Create a "Reusable" auth key
+# =============================================================================
+export TAILSCALE_AUTH_KEY="tskey-auth-XXXXXXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+# =============================================================================
+# OPTIONAL: Tailscale API key for automatic Split DNS updates
+# Get from: https://login.tailscale.com/admin/settings/keys
+# Create an "API access token"
+# =============================================================================
+export TS_API_KEY="tskey-api-XXXXXXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+# Your tailnet name (found in Tailscale admin console URL)
+export TS_TAILNET="your-tailnet.ts.net"
+
+# Domain for Split DNS (default: flowslot.dev)
+export TS_SPLIT_DOMAIN="flowslot.dev"
+
+# =============================================================================
+# OPTIONAL: AWS SSH key name
+# The name of an EC2 key pair for SSH access
+# =============================================================================
+export AWS_KEY_NAME="flowslot-dev"
+
