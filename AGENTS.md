@@ -112,6 +112,8 @@ slot server stop        # Stop entire EC2
 
 ## Environment Variables in Slots
 
+### Slot-Specific Variables
+
 These are exported when running containers:
 
 | Variable | Example | Description |
@@ -121,6 +123,13 @@ These are exported when running containers:
 | `SLOT_PORT_BASE` | `7000` | Base port |
 | `SLOT_REMOTE_IP` | `100.119.84.18` | Tailscale IP |
 | `COMPOSE_PROJECT_NAME` | `myapp-feature-x` | Docker project name |
+
+### Project .env Files
+
+`.env` files are copied directly from the source project during `slot create`:
+- All `.env*` files from source are copied to the new slot
+- Always fresh — no template directory or stale copies
+- If you add a new `.env` variable to source, recreate the slot or manually copy the file
 
 ## Troubleshooting
 
