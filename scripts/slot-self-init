@@ -20,7 +20,6 @@ Initialize flowslot for the current project.
 This will:
   1. Create .slotconfig with project settings
   2. Set up slots directory
-  3. Copy .env files to templates
 
 Options:
   -h, --help    Show this help message
@@ -83,8 +82,6 @@ AWS_REGION="${AWS_REGION_INPUT:-eu-central-1}"
 
 # Create slots directory
 mkdir -p "$SLOTS_DIR"
-TEMPLATE_DIR="$SLOTS_DIR/.env-templates"
-mkdir -p "$TEMPLATE_DIR"
 
 # Create remote base directory
 echo ""
@@ -96,22 +93,6 @@ else
   log_warn "  1. Remote host is accessible: $REMOTE_HOST"
   log_warn "  2. You can run 'slot server start' if EC2 is stopped"
   log_warn "  Remote directory will be created on first 'slot create'"
-fi
-
-# Find and copy .env files from source
-echo ""
-log_info "Copying .env files to templates..."
-env_files=$(find "$SOURCE_DIR" -maxdepth 3 -name ".env*" -type f || true)
-if [ -z "$env_files" ]; then
-  log_warn "No .env files found in source directory"
-else
-  echo "$env_files" | while read -r env_file; do
-    rel_path="${env_file#$SOURCE_DIR/}"
-    dest_file="$TEMPLATE_DIR/$rel_path"
-    mkdir -p "$(dirname "$dest_file")"
-    cp "$env_file" "$dest_file"
-    echo "  Copied: $rel_path"
-  done
 fi
 
 # Detect compose files
@@ -168,7 +149,6 @@ SLOT_REMOTE_HOST="$REMOTE_HOST"
 SLOT_REMOTE_BASE="$REMOTE_BASE"
 SLOT_AWS_INSTANCE_ID="$AWS_INSTANCE_ID"
 SLOT_AWS_REGION="$AWS_REGION"
-SLOT_TEMPLATE_DIR="$TEMPLATE_DIR"
 SLOT_COMPOSE_FILES="$COMPOSE_FILES"
 EOF
 

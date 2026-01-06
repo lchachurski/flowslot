@@ -8,6 +8,22 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-01-06
+
+### Changed
+- **Simplified .env file copying** — `.env` files are now copied directly from source project during slot creation
+  - Removed `.env-templates/` directory indirection layer
+  - `.env` files are always fresh — no more stale templates
+  - Simpler mental model: new slots get current `.env` files from source
+
+### Removed
+- `.env-templates/` directory creation from `slot self init`
+- `SLOT_TEMPLATE_DIR` configuration variable
+- Legacy `repo.git/` directory (leftover from worktree migration)
+
+### Fixed
+- Missing environment variables in new slots (e.g., `ANTHROPIC_API_KEY`) — now always copied from source
+
 ## [2.5.0] - 2026-01-06
 
 ### Added

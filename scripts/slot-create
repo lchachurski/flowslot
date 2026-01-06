@@ -123,16 +123,18 @@ ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SETUP
   mkdir -p '$REMOTE_PATH'
 REMOTE_SETUP
 
-# Copy environment files from templates to local slot
-log_info "Copying environment files..."
-if [ -d "$SLOT_TEMPLATE_DIR" ]; then
-  find "$SLOT_TEMPLATE_DIR" -name ".env*" -type f | while read -r template_file; do
-    rel_path="${template_file#$SLOT_TEMPLATE_DIR/}"
+# Copy environment files directly from source project
+log_info "Copying environment files from source..."
+if [ -d "$SLOT_SOURCE_DIR" ]; then
+  find "$SLOT_SOURCE_DIR" -maxdepth 4 -name ".env*" -type f \
+    ! -path "*/node_modules/*" \
+    ! -path "*/.git/*" | while read -r source_file; do
+    rel_path="${source_file#$SLOT_SOURCE_DIR/}"
     local_env="$LOCAL_PATH/$rel_path"
     
     # Copy to local (Mutagen will sync to remote)
     mkdir -p "$(dirname "$local_env")"
-    cp "$template_file" "$local_env"
+    cp "$source_file" "$local_env"
     log_info "  Copied: $rel_path"
   done
 fi
