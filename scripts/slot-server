@@ -398,7 +398,11 @@ case "$COMMAND" in
       log_warn "TAILSCALE_AUTH_KEY not set."
       echo ""
       echo "Get a reusable auth key from: https://login.tailscale.com/admin/settings/keys"
-      echo "Then run:"
+      echo ""
+      echo "Option 1: Add to ~/.flowslot/config.local (recommended):"
+      echo "  export TAILSCALE_AUTH_KEY=tskey-auth-xxx"
+      echo ""
+      echo "Option 2: Export before running:"
       echo "  export TAILSCALE_AUTH_KEY=tskey-auth-xxx"
       echo "  slot server recreate"
       exit 1

@@ -6,6 +6,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
+FLOWSLOT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Source local config if available (API keys, etc.)
+CONFIG_FILE="$FLOWSLOT_DIR/config.local"
+if [ -f "$CONFIG_FILE" ]; then
+  # shellcheck source=/dev/null
+  source "$CONFIG_FILE"
+fi
 
 # Source common functions
 # shellcheck source=lib/common.sh
