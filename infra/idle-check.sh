@@ -58,23 +58,15 @@ check_docker_activity() {
   return 1  # No activity
 }
 
-# Check 3: SSH/Tailscale connections
+# Check 3: Interactive SSH sessions only (ignore Mutagen @notty connections)
 check_ssh_activity() {
-  # Check for active SSH sessions
+  # Check for interactive SSH sessions (with PTY, not @notty from Mutagen)
   ACTIVE_SSH=$(who 2>/dev/null | wc -l)
   if [[ "$ACTIVE_SSH" -gt 0 ]]; then
-    return 0  # Active session
+    return 0  # Interactive session found
   fi
   
-  # Check if auth.log was modified recently (within 5 mins)
-  if [[ -f /var/log/auth.log ]]; then
-    LAST_AUTH=$(stat -c %Y /var/log/auth.log 2>/dev/null || echo 0)
-    NOW=$(date +%s)
-    if [[ $((NOW - LAST_AUTH)) -lt 300 ]]; then
-      return 0  # Recent auth activity
-    fi
-  fi
-  
+  # Note: Removed auth.log check as it triggers on Mutagen reconnections
   return 1  # No activity
 }
 

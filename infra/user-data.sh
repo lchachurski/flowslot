@@ -210,17 +210,15 @@ check_docker_activity() {
   return 1  # No activity
 }
 
-# Check 3: SSH/Tailscale connections
+# Check 3: Interactive SSH sessions only (ignore Mutagen @notty connections)
 check_ssh_activity() {
-  # Check for active SSH sessions
-  # Only count actual active sessions, not log file modifications
-  # (systemd-logind and other processes modify auth.log, causing false positives)
+  # Check for interactive SSH sessions (with PTY, not @notty from Mutagen)
   ACTIVE_SSH=$(who 2>/dev/null | wc -l)
   if [[ "$ACTIVE_SSH" -gt 0 ]]; then
-    return 0  # Active session
+    return 0  # Interactive session found
   fi
   
-  # No active sessions = no SSH activity
+  # Note: Removed auth.log check as it triggers on Mutagen reconnections
   return 1  # No activity
 }
 
