@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**The practical infrastructure for vibe coding with Cursor and Claude Code.**
+**The practical infrastructure for vibe coding with Cursor, Claude Code and Codex.**
 
 Run multiple parallel AI-assisted development streams — each with isolated context, infrastructure and Git branch.
 
