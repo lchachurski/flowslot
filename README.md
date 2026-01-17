@@ -35,6 +35,7 @@ Vibe coding with AI agents hits real limits fast:
 
 | Problem | What happens |
 |---------|--------------|
+| **Git worktree chaos** | Multiple AI agents on one repo = merge conflicts, detached HEADs, confused AI context |
 | **Can't run multiple environments locally** | Your machine can't handle 2-4 full Docker stacks at once |
 | **File collisions between sessions** | Two Cursor agents editing the same files = chaos |
 | **Testing is a nightmare** | Constantly stopping/starting containers, switching branches |
