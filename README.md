@@ -71,7 +71,7 @@ Local (Cursor + code)                    Remote Server (containers + builds)
 
 ## Quick Start
 
-**Time:** ~20 minutes first-time, then ~2 minutes daily.
+**Time:** ~5 minutes first-time with AI, ~20 minutes for humans. Then ~2 minutes daily.
 
 ### Prerequisites
 
