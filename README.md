@@ -131,7 +131,7 @@ If you added `TS_API_KEY` to your config, Split DNS is updated automatically! �
 Otherwise, manually configure:
 1. Get the Tailscale IP from the script output
 2. Go to https://login.tailscale.com/admin/dns
-3. Add nameserver: `<tailscale-ip>` → Restrict to `flowslot.dev`
+3. Add nameserver: `<tailscale-ip>` → Restrict to `flowslot.dev` (or your own domain)
 
 ### Step 3: Initialize Your Project
 
