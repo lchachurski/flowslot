@@ -109,6 +109,7 @@ export TAILSCALE_AUTH_KEY="tskey-auth-xxx"
 # Create an "API access token" from the same page
 export TS_API_KEY="tskey-api-xxx"
 export TS_TAILNET="your-tailnet.ts.net"
+export TS_SPLIT_DOMAIN="flowslot.dev"  # Or any domain you own (e.g., dev.yourcompany.com)
 
 # Optional: AWS SSH key name
 export AWS_KEY_NAME="flowslot-dev"
