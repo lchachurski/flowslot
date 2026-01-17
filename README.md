@@ -141,7 +141,13 @@ slot self init
 # Enter your Instance ID and Tailscale IP when prompted
 ```
 
-### Step 4: Create Your First Slot
+### Step 4: Adapt Your Project
+
+Your project needs dynamic ports so multiple slots can run without conflicts. See [Adapting Your Project](#adapting-your-project) for details.
+
+**Quick version:** Parameterize ports in `docker-compose.yml` and create `flowslot-ports.sh`.
+
+### Step 5: Create Your First Slot
 
 ```bash
 slot server start
