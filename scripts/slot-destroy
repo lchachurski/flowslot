@@ -104,9 +104,9 @@ REMOTE_SCRIPT
 log_info "Terminating sync..."
 mutagen sync terminate "$SYNC_NAME" 2>/dev/null || true
 
-# Delete remote directory
+# Delete remote directory (use sudo for Docker-owned files)
 log_info "Deleting remote directory..."
-ssh "$SLOT_REMOTE_HOST" "rm -rf '$REMOTE_PATH'" 2>/dev/null || true
+ssh "$SLOT_REMOTE_HOST" "sudo rm -rf '$REMOTE_PATH'" 2>/dev/null || true
 
 # Delete local directory
 log_info "Deleting local directory..."
