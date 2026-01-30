@@ -8,6 +8,36 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-01-27
+
+### Changed (Breaking)
+- **Port-based directory naming** — Remote directories now include port base in name
+  - New format: `/srv/project/slotname-7000/` (port base embedded)
+  - Old format still supported for backward compatibility
+  - Example: `ls /srv/thunder/` shows `pagespeed-7100/`, `release-7000/`
+- **Port recycling** — Destroyed slots' port ranges are now reused
+  - When slot #1 is destroyed, next slot creation can get port 7100
+  - Previously, port numbers only incremented (no recycling)
+- **`slot list` shows port ranges** — New column shows which ports each slot uses
+
+### Added
+- Helper functions in `lib/common.sh`:
+  - `get_slot_name_from_dir()` — Extract slot name from directory
+  - `get_port_base_from_dir()` — Extract port base from directory
+  - `find_slot_dir()` — Find slot directory (supports both formats)
+  - `find_available_port_base()` — Find next available port with recycling
+
+### Fixed
+- **Slot numbers now persist** — Previously derived from container ports (lost on prune)
+  - Port is now encoded in directory name, survives `docker container prune`
+  - No more port conflicts after container cleanup
+- Slot detection now works even when all containers are stopped/removed
+
+### Migration
+- Existing old-format slots (`/srv/project/slotname/`) continue to work
+- New slots will use new format (`/srv/project/slotname-7000/`)
+- `slot resume` handles both formats transparently
+
 ## [2.6.0] - 2026-01-06
 
 ### Changed

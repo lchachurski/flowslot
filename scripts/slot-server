@@ -187,8 +187,19 @@ case "$COMMAND" in
       # Disk
       disk_info=\$(df -BG / | tail -1 | awk '{gsub("G",""); print \$2 "|" \$3 "|" \$4}')
       
-      # Get all slots
-      slots=\$(ls -1 "\$BASE_DIR" 2>/dev/null | grep -v '^repo.git\$' | grep -v '^\\.env-templates\$' | grep -v '^local-' || true)
+      # Get all slots (directories in BASE_DIR)
+      dirs=\$(ls -1 "\$BASE_DIR" 2>/dev/null | grep -v '^repo.git\$' | grep -v '^\\.env-templates\$' | grep -v '^local-' || true)
+      
+      # Helper function to extract slot name from directory name
+      # New format: slotname-7000 -> slotname, Old format: slotname -> slotname
+      get_slot_name() {
+        local dir="\$1"
+        if [[ "\$dir" =~ -[0-9]{4}$ ]]; then
+          echo "\${dir%-[0-9][0-9][0-9][0-9]}"
+        else
+          echo "\$dir"
+        fi
+      }
       
       # Output system info
       echo "TAILSCALE_IP|\${tailscale_ip}"
@@ -201,8 +212,11 @@ case "$COMMAND" in
       
       # Per-slot data
       echo "SLOTS_START"
-      for slot in \$slots; do
-        if [ -d "\$BASE_DIR/\$slot" ]; then
+      for dir in \$dirs; do
+        if [ -d "\$BASE_DIR/\$dir" ]; then
+          # Extract slot name from directory (handles both old and new format)
+          slot=\$(get_slot_name "\$dir")
+          
           # Get containers for this slot's compose project
           project_name="${SLOT_PROJECT_NAME}-\${slot}"
           
@@ -243,8 +257,9 @@ case "$COMMAND" in
       
       # Container details (if requested)
       echo "CONTAINERS_START"
-      for slot in \$slots; do
-        if [ -d "\$BASE_DIR/\$slot" ]; then
+      for dir in \$dirs; do
+        if [ -d "\$BASE_DIR/\$dir" ]; then
+          slot=\$(get_slot_name "\$dir")
           project_name="${SLOT_PROJECT_NAME}-\${slot}"
           running=\$(docker ps --filter "name=\${project_name}" -q 2>/dev/null | wc -l || echo 0)
           

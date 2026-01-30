@@ -50,50 +50,53 @@ fi
 validate_slot_name "$SLOT_NAME"
 
 LOCAL_PATH="$SLOT_SLOTS_DIR/$SLOT_NAME"
-REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
 
 # Check if slot exists locally
 if [ ! -d "$LOCAL_PATH" ]; then
   die "Slot '$SLOT_NAME' not found locally. Run 'slot create $SLOT_NAME' first."
 fi
 
-# Check if slot exists on remote
-if ! ssh "$SLOT_REMOTE_HOST" "[ -d '$REMOTE_PATH' ]" 2>/dev/null; then
+# Find slot directory on remote (supports both new and old format)
+if ! REMOTE_PATH=$(find_slot_dir "$SLOT_REMOTE_BASE" "$SLOT_NAME" "$SLOT_REMOTE_HOST" 2>/dev/null) || [ -z "$REMOTE_PATH" ]; then
   log_warn "Slot '$SLOT_NAME' not found on remote server"
   exit 1
 fi
 
-# Get slot number by detecting actual port from running containers
-# This ensures we show the correct ports that match what's actually running
-SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_GET_NUM
-  set -euo pipefail
-  cd '$REMOTE_PATH' 2>/dev/null || exit 1
-  
-  # Try to get a port from running containers
-  # Look for any container with a port binding in 7xxx range
-  PORT=\$(docker ps --filter "label=com.docker.compose.project=${SLOT_PROJECT_NAME}-${SLOT_NAME}" --format "{{.Ports}}" 2>/dev/null | grep -oE '0\.0\.0\.0:7[0-9]+' | head -1 | cut -d: -f2)
-  
-  if [ -n "\$PORT" ]; then
-    # Calculate slot number from port: (port - 7000) / 100
-    SLOT_NUM=\$(( (PORT - $PORT_BASE_START) / $PORT_RANGE ))
-    echo "\$SLOT_NUM"
-  else
-    # Fallback: count position by directory creation time
-    POSITION=0
-    for dir in \$(ls -1td '$SLOT_REMOTE_BASE'/*/ 2>/dev/null | xargs -n1 basename); do
-      if [ -f "$SLOT_REMOTE_BASE/\$dir/docker-compose.yml" ] || [ -f "$SLOT_REMOTE_BASE/\$dir/docker-compose.dev.yml" ]; then
-        if [ "\$dir" = "$SLOT_NAME" ]; then
+# Extract port from directory name (new format: slotname-7000)
+DIR_NAME=$(basename "$REMOTE_PATH")
+PORT_BASE=$(get_port_base_from_dir "$DIR_NAME")
+
+if [ -n "$PORT_BASE" ]; then
+  # New format - port is in directory name
+  SLOT_NUM=$(( (PORT_BASE - PORT_BASE_START) / PORT_RANGE ))
+else
+  # Old format - detect from containers or fallback
+  SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_GET_NUM
+    set -euo pipefail
+    cd '$REMOTE_PATH' 2>/dev/null || exit 1
+    
+    # Try to get a port from running containers
+    PORT=\$(docker ps --filter "label=com.docker.compose.project=${SLOT_PROJECT_NAME}-${SLOT_NAME}" --format "{{.Ports}}" 2>/dev/null | grep -oE '0\.0\.0\.0:7[0-9]+' | head -1 | cut -d: -f2)
+    
+    if [ -n "\$PORT" ]; then
+      SLOT_NUM=\$(( (PORT - $PORT_BASE_START) / $PORT_RANGE ))
+      echo "\$SLOT_NUM"
+    else
+      # Fallback: count position by directory creation time
+      POSITION=0
+      for dir in \$(ls -1td '$SLOT_REMOTE_BASE'/*/ 2>/dev/null | xargs -n1 basename); do
+        dir_base=\$(echo "\$dir" | sed 's/-[0-9]\{4\}$//')
+        if [ "\$dir_base" = "$SLOT_NAME" ] || [ "\$dir" = "$SLOT_NAME" ]; then
           break
         fi
         POSITION=\$((POSITION + 1))
-      fi
-    done
-    echo "\$POSITION"
-  fi
+      done
+      echo "\$POSITION"
+    fi
 REMOTE_GET_NUM
 )
-
-PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
+  PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
+fi
 
 # Build flowslot domains - both patterns work with dnsmasq wildcard
 # Simple:   {service}.{project}.flowslot.dev:{port}

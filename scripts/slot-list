@@ -39,32 +39,44 @@ SLOT_DATA=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT
   
   # Get all slot directories (must have docker-compose file)
   for slot_path in "\$BASE_DIR"/*/; do
-    slot=\$(basename "\$slot_path")
+    dir_name=\$(basename "\$slot_path")
     
     # Skip if no compose file (not a real slot)
     if [ ! -f "\$slot_path/docker-compose.yml" ] && [ ! -f "\$slot_path/docker-compose.dev.yml" ]; then
       continue
     fi
     
-    # Count running containers for this slot
-    containers=\$(docker ps --filter "name=\${PROJECT}-\${slot}" -q 2>/dev/null | wc -l || echo "0")
+    # Extract slot name and port from directory name
+    # New format: slotname-7000, Old format: slotname
+    if [[ "\$dir_name" =~ -([0-9]{4})$ ]]; then
+      slot_name="\${dir_name%-[0-9][0-9][0-9][0-9]}"
+      port_base="\${BASH_REMATCH[1]}"
+    else
+      slot_name="\$dir_name"
+      port_base=""
+    fi
     
-    # Output: slot|containers
-    echo "\${slot}|\${containers}"
+    # Count running containers for this slot
+    containers=\$(docker ps --filter "name=\${PROJECT}-\${slot_name}" -q 2>/dev/null | wc -l || echo "0")
+    
+    # Output: slot_name|port_base|containers
+    echo "\${slot_name}|\${port_base}|\${containers}"
   done
 REMOTE_SCRIPT
 )
 
-if [ "$SLOT_DATA" = "NO_SLOTS" ]; then
+if [ -z "$SLOT_DATA" ] || [ "$SLOT_DATA" = "NO_SLOTS" ]; then
   echo "  No slots found"
   exit 0
 fi
 
-printf "%-15s %-10s\n" "NAME" "STATUS"
-echo "----------------------------"
+printf "%-15s %-8s %-10s\n" "NAME" "PORTS" "STATUS"
+echo "--------------------------------------"
 
 # Process collected data
-while IFS='|' read -r slot containers; do
+while IFS='|' read -r slot port_base containers; do
+  [ -z "$slot" ] && continue
+  
   # Determine status
   containers="${containers//[[:space:]]/}"  # Trim whitespace
   if [ "$containers" -gt 0 ] 2>/dev/null; then
@@ -73,6 +85,13 @@ while IFS='|' read -r slot containers; do
     status="stopped"
   fi
   
-  printf "%-15s %-10s\n" "$slot" "$status"
+  # Format port range
+  if [ -n "$port_base" ]; then
+    port_range="${port_base}+"
+  else
+    port_range="?"
+  fi
+  
+  printf "%-15s %-8s %-10s\n" "$slot" "$port_range" "$status"
 done <<< "$SLOT_DATA"
 

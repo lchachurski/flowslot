@@ -53,13 +53,15 @@ fi
 validate_slot_name "$SLOT_NAME"
 
 LOCAL_PATH="$SLOT_SLOTS_DIR/$SLOT_NAME"
-REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
 SYNC_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
 
 # Check if slot exists locally
 if [ ! -d "$LOCAL_PATH" ]; then
   die "Slot '$SLOT_NAME' not found locally"
 fi
+
+# Find slot directory on remote (supports both new and old format)
+REMOTE_PATH=$(find_slot_dir "$SLOT_REMOTE_BASE" "$SLOT_NAME" "$SLOT_REMOTE_HOST" 2>/dev/null) || REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
 
 # Confirm deletion
 log_warn "This will permanently delete slot '$SLOT_NAME':"

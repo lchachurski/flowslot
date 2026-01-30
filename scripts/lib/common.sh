@@ -126,3 +126,118 @@ remote_ssh_tty() {
 readonly PORT_BASE_START=7000
 readonly PORT_RANGE=100
 
+# =============================================================================
+# Port-based directory naming helpers
+# Directory format: /srv/project/slotname-7000/ (port base embedded in name)
+# =============================================================================
+
+# Extract slot name from directory name (e.g., "pagespeed-7100" -> "pagespeed")
+get_slot_name_from_dir() {
+  local dir_name="$1"
+  # Remove -NNNN suffix if present
+  if [[ "$dir_name" =~ -[0-9]{4}$ ]]; then
+    echo "${dir_name%-[0-9][0-9][0-9][0-9]}"
+  else
+    # Old format without port suffix
+    echo "$dir_name"
+  fi
+}
+
+# Extract port base from directory name (e.g., "pagespeed-7100" -> "7100")
+# Returns empty string if no port suffix found (old format)
+get_port_base_from_dir() {
+  local dir_name="$1"
+  if [[ "$dir_name" =~ -([0-9]{4})$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+  fi
+}
+
+# Find remote directory for a slot name
+# Checks new format (slotname-NNNN) first, falls back to old format (slotname)
+# Returns full path or empty string if not found
+find_slot_dir() {
+  local base="$1"
+  local name="$2"
+  local host="$3"
+  
+  # Try new format first: slotname-NNNN
+  local new_format
+  new_format=$(ssh "$host" "ls -d '$base/${name}'-[0-9][0-9][0-9][0-9] 2>/dev/null | head -1" || true)
+  if [ -n "$new_format" ]; then
+    echo "$new_format"
+    return 0
+  fi
+  
+  # Fallback to old format: slotname (no port suffix)
+  local old_format
+  old_format=$(ssh "$host" "[ -d '$base/$name' ] && echo '$base/$name'" || true)
+  if [ -n "$old_format" ]; then
+    echo "$old_format"
+    return 0
+  fi
+  
+  # Not found
+  return 1
+}
+
+# Find next available port base (with recycling)
+# Scans existing directories to find gaps in port allocation
+find_available_port_base() {
+  local base="$1"
+  local host="$2"
+  
+  ssh "$host" bash -s "$base" << 'REMOTE_EOF'
+    BASE_DIR="$1"
+    # Get all port bases in use from directory names
+    used_ports=""
+    for dir in "$BASE_DIR"/*-[0-9][0-9][0-9][0-9] 2>/dev/null; do
+      if [ -d "$dir" ]; then
+        port=$(basename "$dir" | grep -oE '[0-9]{4}$')
+        if [ -n "$port" ]; then
+          used_ports="$used_ports $port"
+        fi
+      fi
+    done
+    
+    # Also check old-format directories (without port suffix) for migration
+    # They occupy slots but we can't know which port without container inspection
+    # For now, count them and reserve sequential ports
+    old_count=0
+    for dir in "$BASE_DIR"/*/; do
+      if [ -d "$dir" ]; then
+        dir_name=$(basename "$dir")
+        # Skip if it's new format (has -NNNN suffix)
+        if ! [[ "$dir_name" =~ -[0-9]{4}$ ]]; then
+          old_count=$((old_count + 1))
+        fi
+      fi
+    done
+    
+    # Find first available port starting from 7000
+    port=7000
+    while true; do
+      # Check if port is in used_ports
+      if ! echo "$used_ports" | grep -qw "$port"; then
+        echo "$port"
+        exit 0
+      fi
+      port=$((port + 100))
+      # Safety: don't go beyond reasonable range
+      if [ "$port" -gt 9900 ]; then
+        echo "7000"  # Fallback
+        exit 0
+      fi
+    done
+REMOTE_EOF
+}
+
+# Check if directory uses old format (no port suffix)
+is_old_format_dir() {
+  local dir_name="$1"
+  if [[ "$dir_name" =~ -[0-9]{4}$ ]]; then
+    return 1  # New format
+  else
+    return 0  # Old format
+  fi
+}
+

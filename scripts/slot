@@ -176,8 +176,8 @@ case "$1" in
       upgrade)
         shift
         "$SCRIPT_DIR/slot-self-upgrade" "$@"
-        ;;
-      version)
+    ;;
+  version)
         "$SCRIPT_DIR/slot-self-version"
         ;;
       *)

@@ -40,21 +40,20 @@ fi
 if [ -z "${1:-}" ]; then
   if ! SLOT_NAME=$(detect_slot_name 2>/dev/null); then
     log_error "Slot name required (not inside a slot directory)"
-    echo ""
-    show_help
-    exit 1
-  fi
+  echo ""
+  show_help
+  exit 1
+fi
 else
-  SLOT_NAME="$1"
+SLOT_NAME="$1"
 fi
 
 # Validate slot name
 validate_slot_name "$SLOT_NAME"
-REMOTE_PATH="$SLOT_REMOTE_BASE/$SLOT_NAME"
 SYNC_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
 
-# Check if slot exists
-if ! ssh "$SLOT_REMOTE_HOST" "[ -d '$REMOTE_PATH' ]" 2>/dev/null; then
+# Find slot directory on remote (supports both new and old format)
+if ! REMOTE_PATH=$(find_slot_dir "$SLOT_REMOTE_BASE" "$SLOT_NAME" "$SLOT_REMOTE_HOST" 2>/dev/null) || [ -z "$REMOTE_PATH" ]; then
   die "Slot '$SLOT_NAME' not found on remote"
 fi
 
