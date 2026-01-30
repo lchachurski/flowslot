@@ -49,15 +49,15 @@ Flowslot solves this with **slots** — isolated environments on a remote server
 Local (Cursor + code)                    Remote Server (containers + builds)
 ┌──────────────────────────────────┐     ┌──────────────────────────────────────────┐
 │                                  │     │                                          │
-│  Cursor Window 1                 │     │  Slot: auth (branch: fix/auth-bug)       │
+│  Cursor Window 1                 │     │  Slot: auth-7000/ (branch: fix/auth-bug) │
 │  └── ~/myapp-slots/auth/         │ ──► │  └── Docker containers on ports 7000+    │
 │                                  │sync │      web:7001  api:7003  db:7004         │
 │  Cursor Window 2                 │     │                                          │
-│  └── ~/myapp-slots/feature/      │ ──► │  Slot: feature (branch: feat/new-ui)     │
+│  └── ~/myapp-slots/feature/      │ ──► │  Slot: feature-7100/ (branch: feat/new-ui)
 │                                  │sync │  └── Docker containers on ports 7100+    │
 │  Cursor Window 3                 │     │      web:7101  api:7103  db:7104         │
 │  └── ~/myapp-slots/experiment/   │ ──► │                                          │
-│                                  │sync │  Slot: experiment (branch: main)         │
+│                                  │sync │  Slot: experiment-7200/ (branch: main)   │
 │                                  │     │  └── Docker containers on ports 7200+    │
 │                                  │     │      web:7201  api:7203  db:7204         │
 └──────────────────────────────────┘     └──────────────────────────────────────────┘
@@ -229,7 +229,7 @@ slot server stop
 | `slot stop [name]` | Stop containers (keeps files) |
 | `slot resume [name]` | Resume existing slot |
 | `slot destroy [name]` | Delete slot completely |
-| `slot list` | Show all slots |
+| `slot list` | Show all slots with port ranges |
 | `slot info [name]` | Show slot details (URLs, ports, status) |
 | `slot compose [name] <args>` | Run docker compose on remote slot |
 | `slot server start` | Start EC2 instance |
@@ -396,7 +396,7 @@ See [templates/](templates/) for complete examples.
     └── experiment/             # Slot: experiment → Open in Cursor Window 3
 ```
 
-On remote: `/srv/myapp/<slot-name>/` with synced files and running containers.
+On remote: `/srv/myapp/<slot-name>-<port-base>/` (e.g., `auth-7000/`, `feature-7100/`) with synced files and running containers.
 
 ### The Stack
 
@@ -404,7 +404,7 @@ On remote: `/srv/myapp/<slot-name>/` with synced files and running containers.
 |-------|------|-----|
 | **Git Clones** | Each slot is a full repository clone on its own branch | Standard Git workflow — no detached HEAD issues |
 | **Mutagen Sync** | Real-time bidirectional file sync (~100ms) | Save locally, see changes instantly on remote |
-| **Dynamic Ports** | Slot 0: 7000-7099, Slot 1: 7100-7199, etc. | No port conflicts between slots |
+| **Dynamic Ports** | Slot 0: 7000-7099, Slot 1: 7100-7199, etc. | No port conflicts; port recycled when slots destroyed |
 | **Tailscale** | Private mesh network (100.x.y.z) | Secure access, no public ports |
 | **dnsmasq** | Wildcard DNS (`*.flowslot.dev`) | Human-readable URLs |
 | **Docker Compose** | Your existing setup with port overrides | Same containers, isolated per slot |

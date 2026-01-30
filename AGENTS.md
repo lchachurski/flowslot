@@ -16,7 +16,7 @@ Flowslot manages isolated development environments ("slots") on a remote EC2 ser
 |---------|-------------|
 | **Slot** | An isolated dev environment = local repository clone + remote containers |
 | **Slot directory** | Local path: `~/project-slots/<slot-name>/` |
-| **Remote path** | `/srv/<project>/<slot-name>/` on EC2 |
+| **Remote path** | `/srv/<project>/<slot-name>-<port>/` on EC2 (e.g., `auth-7000/`) |
 | **Port range** | Slot 0: 7000-7099, Slot 1: 7100-7199, etc. |
 | **`.slotconfig`** | Project config file with instance ID, remote host, etc. |
 
