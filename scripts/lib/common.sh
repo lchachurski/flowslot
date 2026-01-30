@@ -190,25 +190,13 @@ find_available_port_base() {
     BASE_DIR="$1"
     # Get all port bases in use from directory names
     used_ports=""
-    for dir in "$BASE_DIR"/*-[0-9][0-9][0-9][0-9] 2>/dev/null; do
+    
+    # List directories matching the pattern
+    for dir in $(ls -d "$BASE_DIR"/*-[0-9][0-9][0-9][0-9]/ 2>/dev/null || true); do
       if [ -d "$dir" ]; then
         port=$(basename "$dir" | grep -oE '[0-9]{4}$')
         if [ -n "$port" ]; then
           used_ports="$used_ports $port"
-        fi
-      fi
-    done
-    
-    # Also check old-format directories (without port suffix) for migration
-    # They occupy slots but we can't know which port without container inspection
-    # For now, count them and reserve sequential ports
-    old_count=0
-    for dir in "$BASE_DIR"/*/; do
-      if [ -d "$dir" ]; then
-        dir_name=$(basename "$dir")
-        # Skip if it's new format (has -NNNN suffix)
-        if ! [[ "$dir_name" =~ -[0-9]{4}$ ]]; then
-          old_count=$((old_count + 1))
         fi
       fi
     done
