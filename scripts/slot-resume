@@ -76,26 +76,17 @@ else
   log_warn "AWS instance ID not configured. Skipping server check."
 fi
 
-# Find slot directory on remote (supports both new and old format)
+# Find slot directory on remote (format: slotname-NNNN)
 log_info "Finding slot directory..."
 if ! REMOTE_PATH=$(find_slot_dir "$SLOT_REMOTE_BASE" "$SLOT_NAME" "$SLOT_REMOTE_HOST" 2>/dev/null) || [ -z "$REMOTE_PATH" ]; then
   die "Slot '$SLOT_NAME' not found on remote server. Use 'slot create $SLOT_NAME' to create it."
 fi
 
-# Extract port from directory name (new format: slotname-7000)
+# Extract port from directory name (e.g., slotname-7000 -> 7000)
 DIR_NAME=$(basename "$REMOTE_PATH")
 PORT_BASE=$(get_port_base_from_dir "$DIR_NAME")
-
-if [ -n "$PORT_BASE" ]; then
-  # New format - port is in directory name
-  SLOT_NUM=$(( (PORT_BASE - PORT_BASE_START) / PORT_RANGE ))
-  log_info "  Found: $REMOTE_PATH (port base: $PORT_BASE)"
-else
-  # Old format - will detect from containers later (migration compatibility)
-  log_info "  Found old-format directory: $REMOTE_PATH"
-  PORT_BASE=""
-  SLOT_NUM=""
-fi
+SLOT_NUM=$(( (PORT_BASE - PORT_BASE_START) / PORT_RANGE ))
+log_info "  Found: $REMOTE_PATH (port base: $PORT_BASE)"
 
 # Resume Mutagen sync (no wipe)
 SYNC_NAME="${SLOT_PROJECT_NAME}-${SLOT_NAME}"
@@ -152,42 +143,6 @@ for i in {1..30}; do
   fi
   sleep 1
 done
-
-# For old-format directories, detect slot number from containers
-if [ -z "$PORT_BASE" ]; then
-  log_info "Detecting slot number from containers (old-format migration)..."
-  SLOT_NUM=$(ssh "$SLOT_REMOTE_HOST" bash << REMOTE_GET_NUM
-    set -euo pipefail
-    cd '$REMOTE_PATH' 2>/dev/null || exit 1
-    
-    # Get first container for this compose project
-    CONTAINER=\$(docker ps -a --filter "label=com.docker.compose.project=${SLOT_PROJECT_NAME}-${SLOT_NAME}" --format "{{.Names}}" 2>/dev/null | head -1)
-    
-    if [ -z "\$CONTAINER" ]; then
-      echo "NO_CONTAINERS"
-      exit 0
-    fi
-    
-    # Use docker inspect to get port bindings (works for stopped containers)
-    PORT=\$(docker inspect "\$CONTAINER" --format '{{range \$k,\$v := .HostConfig.PortBindings}}{{range \$v}}{{.HostPort}} {{end}}{{end}}' 2>/dev/null | tr ' ' '\n' | grep -E '^7[0-9]{3}$' | head -1)
-    
-    if [ -n "\$PORT" ]; then
-      # Calculate slot number from port: (port - 7000) / 100
-      SLOT_NUM=\$(( (PORT - $PORT_BASE_START) / $PORT_RANGE ))
-      echo "\$SLOT_NUM"
-    else
-      echo "NO_PORT"
-      exit 0
-    fi
-REMOTE_GET_NUM
-)
-
-  if [ -z "$SLOT_NUM" ] || [ "$SLOT_NUM" = "NO_CONTAINERS" ] || [ "$SLOT_NUM" = "NO_PORT" ]; then
-    die "Could not detect slot number. No containers found. Use 'slot create $SLOT_NAME' for fresh start."
-  fi
-  
-  PORT_BASE=$((PORT_BASE_START + SLOT_NUM * PORT_RANGE))
-fi
 
 # Get Tailscale IP for accessing services
 TAILSCALE_IP=$(ssh "$SLOT_REMOTE_HOST" "tailscale ip -4 2>/dev/null" | head -1 || echo "")

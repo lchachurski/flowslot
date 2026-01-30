@@ -153,26 +153,17 @@ get_port_base_from_dir() {
 }
 
 # Find remote directory for a slot name
-# Checks new format (slotname-NNNN) first, falls back to old format (slotname)
+# Format: slotname-NNNN (e.g., auth-7000)
 # Returns full path or empty string if not found
 find_slot_dir() {
   local base="$1"
   local name="$2"
   local host="$3"
   
-  # Try new format first: slotname-NNNN
-  local new_format
-  new_format=$(ssh "$host" "ls -d '$base/${name}'-[0-9][0-9][0-9][0-9] 2>/dev/null | head -1" || true)
-  if [ -n "$new_format" ]; then
-    echo "$new_format"
-    return 0
-  fi
-  
-  # Fallback to old format: slotname (no port suffix)
-  local old_format
-  old_format=$(ssh "$host" "[ -d '$base/$name' ] && echo '$base/$name'" || true)
-  if [ -n "$old_format" ]; then
-    echo "$old_format"
+  local dir
+  dir=$(ssh "$host" "ls -d '$base/${name}'-[0-9][0-9][0-9][0-9] 2>/dev/null | head -1" || true)
+  if [ -n "$dir" ]; then
+    echo "$dir"
     return 0
   fi
   
@@ -218,14 +209,3 @@ find_available_port_base() {
     done
 REMOTE_EOF
 }
-
-# Check if directory uses old format (no port suffix)
-is_old_format_dir() {
-  local dir_name="$1"
-  if [[ "$dir_name" =~ -[0-9]{4}$ ]]; then
-    return 1  # New format
-  else
-    return 0  # Old format
-  fi
-}
-

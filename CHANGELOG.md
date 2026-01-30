@@ -33,10 +33,9 @@ See [RELEASES.md](RELEASES.md) for versioning details.
   - No more port conflicts after container cleanup
 - Slot detection now works even when all containers are stopped/removed
 
-### Migration
-- Existing old-format slots (`/srv/project/slotname/`) continue to work
-- New slots will use new format (`/srv/project/slotname-7000/`)
-- `slot resume` handles both formats transparently
+### Breaking
+- Old-format slots (without port suffix) are no longer supported
+- Recreate existing slots with `slot destroy` + `slot create`
 
 ## [2.6.0] - 2026-01-06
 
