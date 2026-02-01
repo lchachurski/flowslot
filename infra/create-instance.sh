@@ -38,7 +38,7 @@ readonly INSTANCE_TYPE="t4g.xlarge"  # 4 vCPU, 16 GB RAM, ARM64
 # Tailscale API for Split DNS automation
 readonly TS_API_KEY="${TS_API_KEY:-}"
 readonly TS_TAILNET="${TS_TAILNET:-}"
-readonly TS_SPLIT_DOMAIN="${TS_SPLIT_DOMAIN:-flowslot.dev}"
+readonly TS_SPLIT_DOMAIN="${TS_SPLIT_DOMAIN:-flowslot.cc}"
 
 show_help() {
   cat << 'EOF'
@@ -56,7 +56,7 @@ Environment variables:
   TAILSCALE_AUTH_KEY  Tailscale reusable auth key (required for auto-setup)
   TS_API_KEY          Tailscale API key for Split DNS automation (optional)
   TS_TAILNET          Tailscale tailnet name, e.g. "example.ts.net" (optional)
-  TS_SPLIT_DOMAIN     Domain for Split DNS (default: flowslot.dev)
+  TS_SPLIT_DOMAIN     Domain for Split DNS (default: flowslot.cc)
 
 Instance: t4g.xlarge (4 vCPU, 16 GB) - ~$0.15/hr On-Demand
 EOF

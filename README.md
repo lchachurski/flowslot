@@ -23,7 +23,7 @@ slot server start                    # Start EC2
 slot create auth                     # Creates slot "auth" on branch "auth"
 slot create feature feat/new-ui      # Or: slot + custom branch
 cursor ~/your-project-slots/auth     # Open in Cursor
-# Access from any device: http://web.your-project.flowslot.dev:7001
+# Access from any device: http://web.your-project.flowslot.cc:7001
 slot server stop                     # End of day
 ```
 
@@ -109,7 +109,7 @@ export TAILSCALE_AUTH_KEY="tskey-auth-xxx"
 # Create an "API access token" from the same page
 export TS_API_KEY="tskey-api-xxx"
 export TS_TAILNET="your-tailnet.ts.net"
-export TS_SPLIT_DOMAIN="flowslot.dev"  # Or any domain you own (e.g., dev.yourcompany.com)
+export TS_SPLIT_DOMAIN="flowslot.cc"  # Or any domain you own (e.g., dev.yourcompany.com)
 
 # Optional: AWS SSH key name
 export AWS_KEY_NAME="flowslot-dev"
@@ -131,7 +131,7 @@ If you added `TS_API_KEY` to your config, Split DNS is updated automatically! �
 Otherwise, manually configure:
 1. Get the Tailscale IP from the script output
 2. Go to https://login.tailscale.com/admin/dns
-3. Add nameserver: `<tailscale-ip>` → Restrict to `flowslot.dev` (or your own domain)
+3. Add nameserver: `<tailscale-ip>` → Restrict to `flowslot.cc` (or your own domain)
 
 ### Step 3: Initialize Your Project
 
@@ -178,12 +178,12 @@ Open each slot in a separate Cursor window, with its browser beside it:
 ```
 ┌─────────────────────────────────┬─────────────────────────────────┐
 │                                 │                                 │
-│  Cursor: ~/myapp-slots/auth/    │  Browser: web.myapp.flowslot.dev:7001
+│  Cursor: ~/myapp-slots/auth/    │  Browser: web.myapp.flowslot.cc:7001
 │  (branch: fix/auth-bug)         │  (auth slot's web app)          │
 │                                 │                                 │
 ├─────────────────────────────────┼─────────────────────────────────┤
 │                                 │                                 │
-│  Cursor: ~/myapp-slots/feature/ │  Browser: web.myapp.flowslot.dev:7101
+│  Cursor: ~/myapp-slots/feature/ │  Browser: web.myapp.flowslot.cc:7101
 │  (branch: feat/new-ui)          │  (feature slot's web app)       │
 │                                 │                                 │
 └─────────────────────────────────┴─────────────────────────────────┘
@@ -195,7 +195,7 @@ Open each slot in a separate Cursor window, with its browser beside it:
 
 1. Install Tailscale app on your phone
 2. Sign in to the same Tailscale account
-3. Browse to `http://web.myapp.flowslot.dev:7001`
+3. Browse to `http://web.myapp.flowslot.cc:7001`
 
 Works on any device connected to your Tailnet — phone, tablet, laptop, another computer.
 
@@ -274,14 +274,14 @@ All slots are accessible via human-readable URLs through Tailscale Split DNS.
 
 | Pattern | Format | Example |
 |---------|--------|---------|
-| **Simple** | `{service}.{project}.flowslot.dev:{port}` | `http://web.myapp.flowslot.dev:7001` |
-| **Extended** | `{service}.{slot}.{project}.flowslot.dev:{port}` | `http://web.feature.myapp.flowslot.dev:7101` |
+| **Simple** | `{service}.{project}.flowslot.cc:{port}` | `http://web.myapp.flowslot.cc:7001` |
+| **Extended** | `{service}.{slot}.{project}.flowslot.cc:{port}` | `http://web.feature.myapp.flowslot.cc:7101` |
 
 **When to use which:**
 
 | Pattern | Best for | Why |
 |---------|----------|-----|
-| **Simple** | OAuth, 3rd-party integrations | Whitelist once (e.g., `web.myapp.flowslot.dev`), works for all slots |
+| **Simple** | OAuth, 3rd-party integrations | Whitelist once (e.g., `web.myapp.flowslot.cc`), works for all slots |
 | **Extended** | Multi-tenant apps, clean URLs | When subdomain is part of your product |
 
 ### Security
@@ -292,8 +292,8 @@ All slots are accessible via human-readable URLs through Tailscale Split DNS.
 
 ### How It Works
 
-1. **dnsmasq on EC2** resolves `*.flowslot.dev` → EC2's Tailscale IP
-2. **Tailscale Split DNS** routes `*.flowslot.dev` queries to the EC2
+1. **dnsmasq on EC2** resolves `*.flowslot.cc` → EC2's Tailscale IP
+2. **Tailscale Split DNS** routes `*.flowslot.cc` queries to the EC2
 3. **Your browser** connects via Tailscale's private network
 
 ---
@@ -406,7 +406,7 @@ On remote: `/srv/myapp/<slot-name>-<port-base>/` (e.g., `auth-7000/`, `feature-7
 | **Mutagen Sync** | Real-time bidirectional file sync (~100ms) | Save locally, see changes instantly on remote |
 | **Dynamic Ports** | Slot 0: 7000-7099, Slot 1: 7100-7199, etc. | No port conflicts; port recycled when slots destroyed |
 | **Tailscale** | Private mesh network (100.x.y.z) | Secure access, no public ports |
-| **dnsmasq** | Wildcard DNS (`*.flowslot.dev`) | Human-readable URLs |
+| **dnsmasq** | Wildcard DNS (`*.flowslot.cc`) | Human-readable URLs |
 | **Docker Compose** | Your existing setup with port overrides | Same containers, isolated per slot |
 
 **Why clones instead of worktrees?** Git worktrees can cause "detached HEAD" issues and confuse IDEs. Full clones mean each slot is a normal Git repository — `git push`, `git pull`, `git checkout` all work as expected.

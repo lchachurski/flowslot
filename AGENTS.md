@@ -145,7 +145,7 @@ These are exported when running containers:
 
 Slots are accessible via:
 - **Tailscale IP**: `http://100.x.x.x:<port>`
-- **Wildcard DNS**: `http://<service>.<project>.flowslot.dev:<port>`
+- **Wildcard DNS**: `http://<service>.<project>.flowslot.cc:<port>`
 
 Port assignments are defined in `flowslot-ports.sh` (e.g., `SLOT_PORT_WEB`, `SLOT_PORT_API`).
 

@@ -17,8 +17,8 @@
 #   Simple:   shorter URLs, easier OAuth (port identifies slot)
 #   Extended: separate browser history per slot
 
-export SLOT_DOMAIN="${SLOT_PROJECT_NAME}.flowslot.dev"                     # simple
-export SLOT_DOMAIN_FULL="${SLOT_NAME}.${SLOT_PROJECT_NAME}.flowslot.dev"   # extended
+export SLOT_DOMAIN="${SLOT_PROJECT_NAME}.flowslot.cc"                     # simple
+export SLOT_DOMAIN_FULL="${SLOT_NAME}.${SLOT_PROJECT_NAME}.flowslot.cc"   # extended
 
 # Use in docker-compose.flowslot.yml:
 #   NEXTAUTH_URL=http://web.${SLOT_DOMAIN}:${SLOT_PORT_WEB}
