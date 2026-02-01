@@ -8,6 +8,14 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-02-01
+
+### Changed
+- **Domain migration** — Changed from `flowslot.dev` to `flowslot.cc`
+  - The `.dev` TLD is on the browser HSTS preload list, forcing HTTPS
+  - Using `.cc` allows HTTP for local development
+  - Updated all references in docs, configs, and scripts
+
 ## [2.7.0] - 2026-01-27
 
 ### Changed (Breaking)
@@ -57,7 +65,7 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ### Added
 - **Automatic Split DNS updates** — Tailscale Split DNS is now updated automatically when creating a new instance
-  - Uses Tailscale API to update `flowslot.cc → <new Tailscale IP>`
+  - Uses Tailscale API to update `flowslot.dev → <new Tailscale IP>`
   - No more manual DNS configuration after `slot server recreate`
 - **Centralized config file** (`~/.flowslot/config.local`)
   - All API keys and configuration in one place
@@ -74,7 +82,7 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 New variables in `config.local`:
 - `TS_API_KEY` — Tailscale API key for Split DNS automation
 - `TS_TAILNET` — Your tailnet name (e.g., `example.ts.net`)
-- `TS_SPLIT_DOMAIN` — Domain for Split DNS (default: `flowslot.cc`)
+- `TS_SPLIT_DOMAIN` — Domain for Split DNS (default: `flowslot.dev`)
 
 ## [2.4.1] - 2026-01-05
 
@@ -250,8 +258,8 @@ New variables in `config.local`:
 
 ### Added
 - Two URL patterns available: simple and extended
-  - Simple: `{service}.{project}.flowslot.cc:{port}` (port identifies slot)
-  - Extended: `{service}.{slot}.{project}.flowslot.cc:{port}` (slot name in domain)
+  - Simple: `{service}.{project}.flowslot.dev:{port}` (port identifies slot)
+  - Extended: `{service}.{slot}.{project}.flowslot.dev:{port}` (slot name in domain)
 - `slot info` now shows both URL patterns
 - `SLOT_DOMAIN` and `SLOT_DOMAIN_FULL` variables in flowslot-ports.sh template
 - `SLOT_NAME` and `SLOT_PROJECT_NAME` now exported to remote environment
@@ -262,9 +270,9 @@ New variables in `config.local`:
 ## [1.6.5] - 2025-12-27
 
 ### Changed
-- Domain changed from fake TLD `.flowslot` to real domain `flowslot.cc`
-- URL pattern now: `{service}.{slot}.{project}.flowslot.cc:{port}`
-- All documentation and configs updated to use `flowslot.cc`
+- Domain changed from fake TLD `.flowslot` to real domain `flowslot.dev`
+- URL pattern now: `{service}.{slot}.{project}.flowslot.dev:{port}`
+- All documentation and configs updated to use `flowslot.dev`
 - Google OAuth now works with proper public TLD
 
 ### Fixed
@@ -333,9 +341,9 @@ New variables in `config.local`:
 ## [1.5.0] - 2025-12-27
 
 ### Added
-- Wildcard DNS support via dnsmasq (`*.flowslot.cc` domain)
+- Wildcard DNS support via dnsmasq (`*.flowslot.dev` domain)
 - User Data (cloud-init) based EC2 setup for full reproducibility
-- URL pattern: `{service}.{slot}.{project}.flowslot.cc:{port}`
+- URL pattern: `{service}.{slot}.{project}.flowslot.dev:{port}`
 - Infrastructure as Code approach - all config files live in repo
 - Automatic Tailscale authentication via reusable auth key
 
@@ -358,7 +366,7 @@ New variables in `config.local`:
 ## [1.4.1] - 2025-12-25
 
 ### Fixed
-- Domain detection in `slot info` - now shows `flowslot.cc` domain URLs instead of IP
+- Domain detection in `slot info` - now shows `flowslot.dev` domain URLs instead of IP
 - Install command now uses `latest` tag for easier installation
 
 ### Changed
