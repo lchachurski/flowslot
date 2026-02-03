@@ -22,8 +22,8 @@ cd ~/your-project && slot self init                      # Init project
 slot server start                    # Start EC2
 slot create auth                     # Creates slot "auth" on branch "auth"
 slot create feature feat/new-ui      # Or: slot + custom branch
-cursor ~/your-project-slots/auth     # Open in Cursor
-# Access from any device: http://web.your-project.flowslot.cc:7001
+# Open ~/your-project-slots/auth in your IDE (Cursor, VS Code, etc.)
+# Access from any device: http://web.your-project.flowslot.dev:7001
 slot server stop                     # End of day
 ```
 
@@ -36,6 +36,7 @@ Vibe coding with AI agents hits real limits fast:
 | Problem | What happens |
 |---------|--------------|
 | **Git worktree chaos** | Multiple AI agents on one repo = merge conflicts, detached HEADs, confused AI context |
+| **Worktrees skip `.env` files** | Gitignored files don't copy to new worktrees — manually recreating `.env` every time kills your flow |
 | **Can't run multiple environments locally** | Your machine can't handle 2-4 full Docker stacks at once |
 | **File collisions between sessions** | Two Cursor agents editing the same files = chaos |
 | **Testing is a nightmare** | Constantly stopping/starting containers, switching branches |
@@ -109,7 +110,7 @@ export TAILSCALE_AUTH_KEY="tskey-auth-xxx"
 # Create an "API access token" from the same page
 export TS_API_KEY="tskey-api-xxx"
 export TS_TAILNET="your-tailnet.ts.net"
-export TS_SPLIT_DOMAIN="flowslot.cc"  # Or any domain you own (e.g., dev.yourcompany.com)
+export TS_SPLIT_DOMAIN="flowslot.dev"  # Use your own domain — see "Domain Selection & HSTS" below
 
 # Optional: AWS SSH key name
 export AWS_KEY_NAME="flowslot-dev"
@@ -131,7 +132,7 @@ If you added `TS_API_KEY` to your config, Split DNS is updated automatically! �
 Otherwise, manually configure:
 1. Get the Tailscale IP from the script output
 2. Go to https://login.tailscale.com/admin/dns
-3. Add nameserver: `<tailscale-ip>` → Restrict to `flowslot.cc` (or your own domain)
+3. Add nameserver: `<tailscale-ip>` → Restrict to `flowslot.dev` (or your own domain)
 
 ### Step 3: Initialize Your Project
 
@@ -178,12 +179,12 @@ Open each slot in a separate Cursor window, with its browser beside it:
 ```
 ┌─────────────────────────────────┬─────────────────────────────────┐
 │                                 │                                 │
-│  Cursor: ~/myapp-slots/auth/    │  Browser: web.myapp.flowslot.cc:7001
+│  Cursor: ~/myapp-slots/auth/    │  Browser: web.myapp.flowslot.dev:7001
 │  (branch: fix/auth-bug)         │  (auth slot's web app)          │
 │                                 │                                 │
 ├─────────────────────────────────┼─────────────────────────────────┤
 │                                 │                                 │
-│  Cursor: ~/myapp-slots/feature/ │  Browser: web.myapp.flowslot.cc:7101
+│  Cursor: ~/myapp-slots/feature/ │  Browser: web.myapp.flowslot.dev:7101
 │  (branch: feat/new-ui)          │  (feature slot's web app)       │
 │                                 │                                 │
 └─────────────────────────────────┴─────────────────────────────────┘
@@ -195,7 +196,7 @@ Open each slot in a separate Cursor window, with its browser beside it:
 
 1. Install Tailscale app on your phone
 2. Sign in to the same Tailscale account
-3. Browse to `http://web.myapp.flowslot.cc:7001`
+3. Browse to `http://web.myapp.flowslot.dev:7001`
 
 Works on any device connected to your Tailnet — phone, tablet, laptop, another computer.
 
@@ -270,18 +271,30 @@ slot compose exec api bash         # Shell into container
 
 All slots are accessible via human-readable URLs through Tailscale Split DNS.
 
+### Important: Domain Selection & HSTS
+
+Flowslot uses **HTTP** (not HTTPS) for local development — SSL termination happens at your load balancer in production, not during development. This means you should **use a dedicated domain for Flowslot** that you don't use for production HTTPS sites.
+
+**Why?** If you use a domain that previously served HTTPS, your browser may have cached an HSTS (HTTP Strict Transport Security) policy. HSTS tells browsers "always use HTTPS for this domain" — and browsers remember this for weeks or months. When you then try to access `http://web.myapp.example.com:7001`, your browser silently upgrades it to `https://` and fails.
+
+**Warning about `flowslot.cc`:** The default domain `flowslot.cc` is also the Flowslot project website (https://flowslot.cc). If you've visited the website, your browser has cached HSTS for this domain and will force HTTPS on your dev URLs. **Use your own domain instead** (e.g., `flowslot.dev`, `dev.yourcompany.com`) or clear HSTS if you want to use `flowslot.cc`.
+
+**Recommendations:**
+- Use your own domain that never serves production HTTPS (e.g., `flowslot.dev`, `slots.yourcompany.com`)
+- If you already hit this issue, see [Troubleshooting: Browser forces HTTPS](#troubleshooting)
+
 ### URL Patterns
 
 | Pattern | Format | Example |
 |---------|--------|---------|
-| **Simple** | `{service}.{project}.flowslot.cc:{port}` | `http://web.myapp.flowslot.cc:7001` |
-| **Extended** | `{service}.{slot}.{project}.flowslot.cc:{port}` | `http://web.feature.myapp.flowslot.cc:7101` |
+| **Simple** | `{service}.{project}.flowslot.dev:{port}` | `http://web.myapp.flowslot.dev:7001` |
+| **Extended** | `{service}.{slot}.{project}.flowslot.dev:{port}` | `http://web.feature.myapp.flowslot.dev:7101` |
 
 **When to use which:**
 
 | Pattern | Best for | Why |
 |---------|----------|-----|
-| **Simple** | OAuth, 3rd-party integrations | Whitelist once (e.g., `web.myapp.flowslot.cc`), works for all slots |
+| **Simple** | OAuth, 3rd-party integrations | Whitelist once (e.g., `web.myapp.flowslot.dev`), works for all slots |
 | **Extended** | Multi-tenant apps, clean URLs | When subdomain is part of your product |
 
 ### Security
@@ -292,8 +305,8 @@ All slots are accessible via human-readable URLs through Tailscale Split DNS.
 
 ### How It Works
 
-1. **dnsmasq on EC2** resolves `*.flowslot.cc` → EC2's Tailscale IP
-2. **Tailscale Split DNS** routes `*.flowslot.cc` queries to the EC2
+1. **dnsmasq on EC2** resolves `*.flowslot.dev` → EC2's Tailscale IP
+2. **Tailscale Split DNS** routes `*.flowslot.dev` queries to the EC2
 3. **Your browser** connects via Tailscale's private network
 
 ---
@@ -406,7 +419,7 @@ On remote: `/srv/myapp/<slot-name>-<port-base>/` (e.g., `auth-7000/`, `feature-7
 | **Mutagen Sync** | Real-time bidirectional file sync (~100ms) | Save locally, see changes instantly on remote |
 | **Dynamic Ports** | Slot 0: 7000-7099, Slot 1: 7100-7199, etc. | No port conflicts; port recycled when slots destroyed |
 | **Tailscale** | Private mesh network (100.x.y.z) | Secure access, no public ports |
-| **dnsmasq** | Wildcard DNS (`*.flowslot.cc`) | Human-readable URLs |
+| **dnsmasq** | Wildcard DNS (`*.flowslot.dev`) | Human-readable URLs |
 | **Docker Compose** | Your existing setup with port overrides | Same containers, isolated per slot |
 
 **Why clones instead of worktrees?** Git worktrees can cause "detached HEAD" issues and confuse IDEs. Full clones mean each slot is a normal Git repository — `git push`, `git pull`, `git checkout` all work as expected.
@@ -425,6 +438,38 @@ On remote: `/srv/myapp/<slot-name>-<port-base>/` (e.g., `auth-7000/`, `feature-7
 | Coworker can't access | Add them to your Tailscale account or share device |
 | Slot exists error on create | Use `slot resume` or `slot destroy` first |
 | Service can't find API | Use `SLOT_REMOTE_IP` instead of `localhost` |
+| Browser forces HTTPS | Clear HSTS cache for your domain (see below) |
+
+### Browser Forces HTTPS (HSTS Issue)
+
+**Symptom:** You type `http://web.myapp.flowslot.dev:7001` but browser redirects to `https://` and fails with a connection or certificate error.
+
+**Cause:** Your browser cached an HSTS policy from when this domain (or a parent domain) was served over HTTPS — perhaps from a previous hosting provider, Vercel, Netlify, Lovable, etc. HSTS tells browsers "always use HTTPS" and browsers remember this for weeks/months.
+
+**Fix:** Clear the HSTS cache for your domain:
+
+**Chrome:**
+1. Go to `chrome://net-internals/#hsts`
+2. Scroll to "Delete domain security policies"
+3. Enter your domain (e.g., `flowslot.dev`) and click **Delete**
+4. Also try the parent domain if using subdomains
+
+**Firefox:**
+1. Close Firefox
+2. Find your profile folder: `about:support` → "Profile Folder" → "Open Folder"
+3. Delete `SiteSecurityServiceState.txt` (or edit it to remove your domain)
+4. Restart Firefox
+
+**Safari:**
+1. Close Safari completely
+2. Delete `~/Library/Cookies/HSTS.plist`
+3. Reopen Safari
+
+**Edge:**
+1. Go to `edge://net-internals/#hsts`
+2. Same steps as Chrome
+
+**Prevention:** Use a dedicated domain for Flowslot that you never use for production HTTPS sites. See [Important: Domain Selection & HSTS](#important-domain-selection--hsts).
 
 ### Debug Commands
 

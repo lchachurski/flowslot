@@ -22,6 +22,9 @@ export TS_API_KEY="tskey-api-XXXXXXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 export TS_TAILNET="your-tailnet.ts.net"
 
 # Domain for Split DNS (default: flowslot.cc)
+# WARNING: flowslot.cc is also the project website (https://flowslot.cc) which uses HTTPS.
+# If you've visited it, your browser cached HSTS and will force HTTPS on dev URLs.
+# Recommended: Use your own domain (e.g., flowslot.dev, dev.yourcompany.com)
 export TS_SPLIT_DOMAIN="flowslot.cc"
 
 # =============================================================================
