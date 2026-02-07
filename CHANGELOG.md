@@ -8,6 +8,16 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+### Added
+- New desktop layout commands:
+  - `slot desktop up` — Launch browser/editor pairs for running slots on sequential macOS Spaces
+  - `slot desktop down` — Close only windows managed by desktop up
+  - `slot desktop restart` — Rebuild layout (`down` then `up`)
+- Optional desktop configuration via `.slotdesktop` (or `.slotconfig`) with defaults for:
+  - `DESKTOP_START_SPACE`, `DESKTOP_LAYOUT`, `DESKTOP_BROWSER`, `DESKTOP_EDITOR`
+  - `DESKTOP_TOP_OFFSET`, `DESKTOP_SWITCH_DELAY`, `DESKTOP_WINDOW_TIMEOUT`
+- State tracking file `.slotdesktop.state` to safely target managed windows during cleanup
+
 ## [2.8.0] - 2026-02-01
 
 ### Changed
@@ -447,4 +457,3 @@ New variables in `config.local`:
 [1.2.0]: https://github.com/lchachurski/flowslot/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/lchachurski/flowslot/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/lchachurski/flowslot/releases/tag/v1.0.0
-
