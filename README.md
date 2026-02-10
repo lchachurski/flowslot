@@ -1,6 +1,7 @@
 # Flowslot
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub version](https://badge.fury.io/gh/lchachurski%2Fflowslot.svg)](https://badge.fury.io/gh/lchachurski%2Fflowslot)
 
 **The practical infrastructure for vibe coding with Cursor, Claude Code and Codex.**
 
