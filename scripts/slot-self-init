@@ -136,23 +136,25 @@ if [ ! -f "$SOURCE_DIR/flowslot-ports.sh" ]; then
   echo "See: $SCRIPT_DIR/../templates/flowslot-ports.example.sh"
 fi
 
-# Optional: Claude Code / CallMeBot notification setup
+# Optional: Claude Code / Twilio notification setup
 echo ""
-echo "Enable 'slot claude' (run Claude Code on slots, phone-call on finish)?"
+echo "Enable 'slot claude' (run Claude Code on slots, phone-call on finish via Twilio)?"
 read -r -p "Configure now? [y/N] " ENABLE_CLAUDE
-CALLMEBOT_PHONE=""
-CALLMEBOT_APIKEY=""
-CALLMEBOT_CHANNEL="whatsapp"
+TWILIO_ACCOUNT_SID=""
+TWILIO_AUTH_TOKEN=""
+TWILIO_FROM=""
+TWILIO_TO=""
 SLOT_CLAUDE_DEFAULT_VAL="remote"
 if [[ "$ENABLE_CLAUDE" =~ ^[Yy]$ ]]; then
-  echo "  CallMeBot channel (whatsapp | signal | telegram | call):"
-  read -r -p "  [whatsapp]: " CHANNEL_INPUT
-  CALLMEBOT_CHANNEL="${CHANNEL_INPUT:-whatsapp}"
-  echo "  Phone number (international format, e.g. +46701234567; for 'telegram'/'call' use @username):"
-  read -r -p "  phone: " CALLMEBOT_PHONE
-  echo "  CallMeBot API key (get one at callmebot.com; skip with empty for 'telegram'):"
-  read -r -s -p "  apikey: " CALLMEBOT_APIKEY
+  echo "  Twilio Account SID (from console.twilio.com, starts with 'AC'):"
+  read -r -p "  sid: " TWILIO_ACCOUNT_SID
+  echo "  Twilio Auth Token (same page):"
+  read -r -s -p "  token: " TWILIO_AUTH_TOKEN
   echo ""
+  echo "  Twilio phone number (E.164 format, the 'From' — bought in Twilio console):"
+  read -r -p "  from [+15551234567]: " TWILIO_FROM
+  echo "  Your personal phone number (E.164 format, the number that rings):"
+  read -r -p "  to [+46701234567]: " TWILIO_TO
   echo "  Default 'slot claude' target (remote | local):"
   read -r -p "  [remote]: " DEFAULT_INPUT
   SLOT_CLAUDE_DEFAULT_VAL="${DEFAULT_INPUT:-remote}"
@@ -173,11 +175,12 @@ SLOT_AWS_INSTANCE_ID="$AWS_INSTANCE_ID"
 SLOT_AWS_REGION="$AWS_REGION"
 SLOT_COMPOSE_FILES="$COMPOSE_FILES"
 
-# Claude Code integration ('slot claude'). Leave phone/apikey empty to disable
+# Claude Code integration ('slot claude'). Leave any Twilio field empty to disable
 # the phone-call notification hook.
-FLOWSLOT_CALLMEBOT_PHONE="$CALLMEBOT_PHONE"
-FLOWSLOT_CALLMEBOT_APIKEY="$CALLMEBOT_APIKEY"
-FLOWSLOT_CALLMEBOT_CHANNEL="$CALLMEBOT_CHANNEL"
+FLOWSLOT_TWILIO_ACCOUNT_SID="$TWILIO_ACCOUNT_SID"
+FLOWSLOT_TWILIO_AUTH_TOKEN="$TWILIO_AUTH_TOKEN"
+FLOWSLOT_TWILIO_FROM="$TWILIO_FROM"
+FLOWSLOT_TWILIO_TO="$TWILIO_TO"
 SLOT_CLAUDE_DEFAULT="$SLOT_CLAUDE_DEFAULT_VAL"
 EOF
 

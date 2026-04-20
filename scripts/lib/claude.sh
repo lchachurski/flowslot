@@ -63,11 +63,14 @@ sync_claude_auth() {
   local to_sync=("$HOME/.claude/credentials.json")
   [ -f "$HOME/.claude/settings.json" ] && to_sync+=("$HOME/.claude/settings.json")
 
-  # --chmod=F600 mirrors the sensitive perms of credentials.json.
-  if ! rsync -az --chmod=F600 "${to_sync[@]}" "$host:.claude/" 2>/dev/null; then
+  # -a preserves perms; credentials.json is already 0600 locally. macOS ships
+  # openrsync which rejects --chmod=F600, so we rely on the source file perms
+  # and lock down the remote copy after the fact.
+  if ! rsync -az "${to_sync[@]}" "$host:.claude/" 2>/dev/null; then
     log_warn "Credential rsync failed."
     return 1
   fi
+  ssh "$host" 'chmod 600 "$HOME/.claude/credentials.json" 2>/dev/null' || true
   return 0
 }
 
@@ -78,28 +81,32 @@ deploy_notify_hook() {
   local host="$1"
   local flowslot_root="$2"
 
-  # 1) Copy the notify script.
+  # 1) Copy the notify script. (--chmod= is unsupported by macOS's openrsync;
+  # the source file is already 0755 locally and -a preserves perms.)
   ssh "$host" 'mkdir -p "$HOME/.flowslot/bin"'
-  rsync -az --chmod=F755 "$flowslot_root/infra/flowslot-notify.sh" \
-    "$host:.flowslot/bin/flowslot-notify" 2>/dev/null
+  if ! rsync -az "$flowslot_root/infra/flowslot-notify.sh" \
+    "$host:.flowslot/bin/flowslot-notify"; then
+    log_error "Failed to copy flowslot-notify to slot"
+    return 1
+  fi
+  ssh "$host" 'chmod +x "$HOME/.flowslot/bin/flowslot-notify"' || true
 
-  # 2) Write notify.conf with CallMeBot creds (0600).
-  ssh "$host" bash -s -- \
-    "${FLOWSLOT_CALLMEBOT_PHONE:-}" \
-    "${FLOWSLOT_CALLMEBOT_APIKEY:-}" \
-    "${FLOWSLOT_CALLMEBOT_CHANNEL:-whatsapp}" << 'REMOTE_CONF'
-    set -e
-    phone="$1"
-    apikey="$2"
-    channel="$3"
-    conf="$HOME/.flowslot/notify.conf"
-    umask 077
-    cat > "$conf" << CONF
-FLOWSLOT_CALLMEBOT_PHONE="${phone}"
-FLOWSLOT_CALLMEBOT_APIKEY="${apikey}"
-FLOWSLOT_CALLMEBOT_CHANNEL="${channel}"
-CONF
-REMOTE_CONF
+  # 2) Write notify.conf with Twilio creds (0600).
+  # We build the conf file locally and pipe it via stdin — safer than passing
+  # values as ssh positional args, which silently collapses empty strings.
+  local local_tmp
+  local_tmp="$(mktemp)"
+  {
+    printf 'FLOWSLOT_TWILIO_ACCOUNT_SID=%q\n' "${FLOWSLOT_TWILIO_ACCOUNT_SID:-}"
+    printf 'FLOWSLOT_TWILIO_AUTH_TOKEN=%q\n'  "${FLOWSLOT_TWILIO_AUTH_TOKEN:-}"
+    printf 'FLOWSLOT_TWILIO_FROM=%q\n'        "${FLOWSLOT_TWILIO_FROM:-}"
+    printf 'FLOWSLOT_TWILIO_TO=%q\n'          "${FLOWSLOT_TWILIO_TO:-}"
+    if [ -n "${FLOWSLOT_TWILIO_VOICE:-}" ]; then
+      printf 'FLOWSLOT_TWILIO_VOICE=%q\n' "$FLOWSLOT_TWILIO_VOICE"
+    fi
+  } > "$local_tmp"
+  ssh "$host" 'umask 077; cat > "$HOME/.flowslot/notify.conf"' < "$local_tmp"
+  rm -f "$local_tmp"
 
   # 3) Merge hook block into ~/.claude/settings.json using jq.
   ssh "$host" bash << 'REMOTE_MERGE'

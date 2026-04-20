@@ -64,14 +64,6 @@ FOLLOW=0
 EXPLICIT_SLOT=""
 PROMPT_ARGS=()
 
-# First positional may be a subcommand keyword.
-if [ $# -gt 0 ]; then
-  case "$1" in
-    attach|logs|bootstrap|status) MODE="$1"; shift ;;
-    -h|--help) show_help; exit 0 ;;
-  esac
-fi
-
 while [ $# -gt 0 ]; do
   case "$1" in
     --slot)      EXPLICIT_SLOT="${2:-}"; shift 2 ;;
@@ -82,6 +74,10 @@ while [ $# -gt 0 ]; do
     -f|--follow) FOLLOW=1; shift ;;
     -h|--help)   show_help; exit 0 ;;
     --)          shift; PROMPT_ARGS+=("$@"); break ;;
+    attach|logs|bootstrap|status)
+      # Subcommand keyword — accept it wherever it appears, but only once.
+      if [ -z "$MODE" ]; then MODE="$1"; else PROMPT_ARGS+=("$1"); fi
+      shift ;;
     *)           PROMPT_ARGS+=("$1"); shift ;;
   esac
 done
@@ -135,11 +131,13 @@ case "$MODE" in
     if ! ssh "$SLOT_REMOTE_HOST" "tmux has-session -t '$TMUX_SESSION' 2>/dev/null"; then
       die "No Claude session on slot '$SLOT_NAME'. Start one with: slot claude --slot $SLOT_NAME"
     fi
-    exec remote_ssh_tty "$SLOT_REMOTE_HOST" "tmux attach -t '$TMUX_SESSION'"
+    remote_ssh_tty "$SLOT_REMOTE_HOST" "tmux attach -t '$TMUX_SESSION'"
+    exit $?
     ;;
   logs)
     if [ $FOLLOW -eq 1 ]; then
-      exec remote_ssh_tty "$SLOT_REMOTE_HOST" 'tail -F "$HOME/.flowslot/claude-session.log" 2>/dev/null'
+      remote_ssh_tty "$SLOT_REMOTE_HOST" 'tail -F "$HOME/.flowslot/claude-session.log" 2>/dev/null'
+      exit $?
     else
       exec ssh "$SLOT_REMOTE_HOST" 'test -f "$HOME/.flowslot/claude-session.log" && cat "$HOME/.flowslot/claude-session.log" || echo "(no log yet)"'
     fi
@@ -241,4 +239,5 @@ tmux new-session -A -s '$TMUX_SESSION' -c '$REMOTE_PATH' \"$INNER\""
 
 log_info "Attaching to Claude on slot '$SLOT_NAME' (tmux: $TMUX_SESSION)..."
 log_info "  Detach with Ctrl-b d — the session keeps running."
-exec remote_ssh_tty "$SLOT_REMOTE_HOST" "$REMOTE_CMD"
+remote_ssh_tty "$SLOT_REMOTE_HOST" "$REMOTE_CMD"
+exit $?

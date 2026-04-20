@@ -8,6 +8,33 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.9.1] - 2026-04-20
+
+### Changed (Breaking for `slot claude` users)
+- **Switched notification channel from CallMeBot to Twilio Voice.** CallMeBot's
+  Telegram-bot voice call doesn't integrate with CallKit on iOS, so the phone
+  doesn't actually ring when Telegram is backgrounded — it only surfaces if
+  the Telegram app is foreground. Twilio places a real PSTN call that rings
+  like any other phone call, bypasses Do Not Disturb when set as emergency,
+  and works on locked phones.
+- `.slotconfig` variables renamed:
+  - `FLOWSLOT_CALLMEBOT_PHONE` / `_APIKEY` / `_CHANNEL` / `_URL_TEMPLATE` removed
+  - Added: `FLOWSLOT_TWILIO_ACCOUNT_SID`, `FLOWSLOT_TWILIO_AUTH_TOKEN`,
+    `FLOWSLOT_TWILIO_FROM`, `FLOWSLOT_TWILIO_TO`, optional `FLOWSLOT_TWILIO_VOICE`
+- `slot self init` now prompts for Twilio credentials.
+
+### Fixed
+- `rsync --chmod=F755` flag rejected by macOS's openrsync; now relies on source
+  file perms + post-sync `chmod` via ssh.
+- `ssh host bash -s -- "$a" "$b" "$c"` silently collapsed empty arguments,
+  shifting config values by one slot. `deploy_notify_hook` now builds the conf
+  file locally and pipes it via stdin.
+- `slot claude bootstrap` (and other subcommands) weren't recognized when they
+  appeared after flags; the argument parser now accepts the subcommand
+  keyword anywhere in the arg list.
+- `exec remote_ssh_tty …` failed because `remote_ssh_tty` is a shell function,
+  not an external command. Swapped `exec` for call-and-`exit $?`.
+
 ## [2.9.0] - 2026-04-20
 
 ### Added
@@ -19,9 +46,9 @@ See [RELEASES.md](RELEASES.md) for versioning details.
   - `slot claude bootstrap` (and `--refresh`) for explicit install / auth-sync / hook deploy
   - First-use auto-provisioning: installs Claude Code on the slot, rsyncs `~/.claude` credentials from your Mac, deploys `~/.flowslot/bin/flowslot-notify`, merges `Stop` and `Notification` hooks into the slot's `~/.claude/settings.json`
   - Falls back to interactive `/login` inside tmux if credentials don't transfer
-  - Notifications via CallMeBot with configurable channel: `whatsapp`, `signal`, `telegram` messages, or `call` (Telegram voice call). Custom `FLOWSLOT_CALLMEBOT_URL_TEMPLATE` supported.
+  - Real phone-call notifications via Twilio Voice (see 2.9.1 — 2.9.0 shipped with CallMeBot, which was replaced after testing revealed it doesn't ring locked iOS phones)
   - Permissions on the slot use `--dangerously-skip-permissions` (the slot is an isolated per-branch sandbox; blast radius = `slot destroy`)
-  - `slot self init` prompts for CallMeBot credentials; `slot destroy` tears down any lingering `claude-<slot>` tmux session
+  - `slot self init` prompts for notification credentials; `slot destroy` tears down any lingering `claude-<slot>` tmux session
 - New desktop layout commands:
   - `slot desktop up` — Launch browser/editor pairs for running slots on sequential macOS Spaces
   - `slot desktop down` — Close only windows managed by desktop up

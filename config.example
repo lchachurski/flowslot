@@ -34,21 +34,26 @@ export TS_SPLIT_DOMAIN="flowslot.cc"
 export AWS_KEY_NAME="flowslot-dev"
 
 # =============================================================================
-# OPTIONAL: `slot claude` — run Claude Code on slots with phone-call notifications.
+# OPTIONAL: `slot claude` — run Claude Code on slots with real phone-call
+# notifications via Twilio Voice. When Claude finishes a task or asks for your
+# input, your phone rings with a TwiML-spoken message (works on locked phones,
+# bypasses Do Not Disturb if you set it as an emergency contact).
 #
 # Per-project values are written to .slotconfig by `slot self init`; the ones
 # below are documented here for reference / manual configuration.
 #
-# FLOWSLOT_CALLMEBOT_PHONE    Phone number in international format (e.g. +46701234567)
-#                             For channel=telegram or channel=call, use a @username instead.
-# FLOWSLOT_CALLMEBOT_APIKEY   Your CallMeBot API key (get one at https://callmebot.com).
-# FLOWSLOT_CALLMEBOT_CHANNEL  whatsapp | signal | telegram | call  (default: whatsapp)
-#                               whatsapp/signal   → message (WhatsApp/Signal)
-#                               telegram          → Telegram message
-#                               call              → Telegram voice call (rings your phone)
-# FLOWSLOT_CALLMEBOT_URL_TEMPLATE  Optional override — a URL containing {PHONE},
-#                                  {APIKEY}, {TEXT} placeholders. Takes precedence
-#                                  over channel-based defaults.
-# SLOT_CLAUDE_DEFAULT         remote (default) or local — flip `slot claude` default.
+# FLOWSLOT_TWILIO_ACCOUNT_SID  Your Twilio Account SID (starts with "AC…"),
+#                              from https://console.twilio.com/.
+# FLOWSLOT_TWILIO_AUTH_TOKEN   Your Twilio Auth Token (same page).
+# FLOWSLOT_TWILIO_FROM         Your Twilio phone number in E.164 (e.g. +15551234567).
+#                              Trial accounts get one free; Console → Phone Numbers.
+# FLOWSLOT_TWILIO_TO           Your personal phone number in E.164 (the one that rings).
+#                              Trial accounts must verify this number first (Console →
+#                              Phone Numbers → Verified Caller IDs).
+# FLOWSLOT_TWILIO_VOICE        Optional TwiML voice (default: "alice"). Examples:
+#                              "Polly.Matthew-Neural", "Polly.Joanna-Neural".
+# SLOT_CLAUDE_DEFAULT          remote (default) or local — flip `slot claude` default.
+#
+# Cost: ~$1/mo for a Twilio number + ~$0.013 per call. Free trial gives $15 credit.
 # =============================================================================
 

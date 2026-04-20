@@ -1,5 +1,5 @@
 #!/bin/bash
-# flowslot-notify — invoked by Claude Code hooks on a slot to call/message the user.
+# flowslot-notify — invoked by Claude Code hooks on a slot to call the user.
 #
 # Deployed to ~/.flowslot/bin/flowslot-notify by `slot claude` (see scripts/lib/claude.sh).
 # Config is sourced from ~/.flowslot/notify.conf (0600, written by deploy_notify_hook).
@@ -8,14 +8,14 @@
 #   flowslot-notify <event>    event ∈ { stop, notification }
 #
 # Config (sourced from ~/.flowslot/notify.conf):
-#   FLOWSLOT_CALLMEBOT_PHONE       Phone number in international format (e.g. +46701234567)
-#                                  For 'telegram' channel: a Telegram @username instead.
-#   FLOWSLOT_CALLMEBOT_APIKEY      CallMeBot API key (obtained per-channel from CallMeBot).
-#   FLOWSLOT_CALLMEBOT_CHANNEL     whatsapp | signal | telegram  (default: whatsapp)
-#   FLOWSLOT_CALLMEBOT_URL_TEMPLATE  Optional override: URL with {PHONE}, {APIKEY}, {TEXT} placeholders.
+#   FLOWSLOT_TWILIO_ACCOUNT_SID   Your Twilio Account SID (starts with "AC...").
+#   FLOWSLOT_TWILIO_AUTH_TOKEN    Your Twilio Auth Token (from Twilio console).
+#   FLOWSLOT_TWILIO_FROM          Your Twilio phone number in E.164 (e.g. +15551234567).
+#   FLOWSLOT_TWILIO_TO            Your personal phone number in E.164 (the one that rings).
+#   FLOWSLOT_TWILIO_VOICE         Optional TwiML voice (default: "alice"). E.g. "Polly.Matthew-Neural".
 #
 # Per-invocation env (set by `slot claude` when launching Claude):
-#   FLOWSLOT_SLOT_NAME, FLOWSLOT_PROJECT_NAME — used in the message body.
+#   FLOWSLOT_SLOT_NAME, FLOWSLOT_PROJECT_NAME — used in the spoken message.
 #   FLOWSLOT_SILENT=1                         — skip notification (for automated runs).
 #
 # All output goes to ~/.flowslot/claude-session.log; hooks must stay quiet on stdout/stderr.
@@ -42,68 +42,60 @@ fi
 # shellcheck disable=SC1090
 . "$conf"
 
-phone="${FLOWSLOT_CALLMEBOT_PHONE:-}"
-apikey="${FLOWSLOT_CALLMEBOT_APIKEY:-}"
-channel="${FLOWSLOT_CALLMEBOT_CHANNEL:-whatsapp}"
+sid="${FLOWSLOT_TWILIO_ACCOUNT_SID:-}"
+token="${FLOWSLOT_TWILIO_AUTH_TOKEN:-}"
+from="${FLOWSLOT_TWILIO_FROM:-}"
+to="${FLOWSLOT_TWILIO_TO:-}"
+voice="${FLOWSLOT_TWILIO_VOICE:-alice}"
 
-if [ -z "$phone" ] || [ -z "$apikey" ]; then
-  log_line "notify.conf missing phone/apikey; skipping $event"
-  exit 0
-fi
+for name in sid token from to; do
+  if [ -z "${!name}" ]; then
+    log_line "notify.conf missing FLOWSLOT_TWILIO_${name^^}; skipping $event"
+    exit 0
+  fi
+done
 
 slot="${FLOWSLOT_SLOT_NAME:-$(basename "$PWD" | sed -E 's/-[0-9]{4}$//')}"
 project="${FLOWSLOT_PROJECT_NAME:-$(basename "$(dirname "$PWD")")}"
 
 case "$event" in
-  stop)         msg="Claude finished task on slot '${slot}' (${project})." ;;
-  notification) msg="Claude needs your input on slot '${slot}' (${project})." ;;
-  *)            msg="Claude event '${event}' on slot '${slot}' (${project})." ;;
+  stop)         msg="Claude finished a task on slot ${slot} in project ${project}." ;;
+  notification) msg="Claude needs your input on slot ${slot} in project ${project}." ;;
+  *)            msg="Claude event ${event} on slot ${slot} in project ${project}." ;;
 esac
 
-# URL-encode the message body. Prefer jq, which is installed as a dependency.
-urlencode() {
-  if command -v jq >/dev/null 2>&1; then
-    printf '%s' "$1" | jq -sRr @uri
-  else
-    # Minimal fallback — only safe because msg content is controlled by this script.
-    python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$1" 2>/dev/null \
-      || printf '%s' "$1" | sed 's/ /%20/g'
-  fi
+# XML-escape the spoken text for TwiML.
+xml_escape() {
+  printf '%s' "$1" \
+    | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' \
+          -e "s/'/\&apos;/g" -e 's/"/\&quot;/g'
 }
-text_enc="$(urlencode "$msg")"
+msg_xml="$(xml_escape "$msg")"
+twiml="<Response><Say voice=\"${voice}\">${msg_xml}</Say></Response>"
 
-# Choose endpoint.
-if [ -n "${FLOWSLOT_CALLMEBOT_URL_TEMPLATE:-}" ]; then
-  url="$FLOWSLOT_CALLMEBOT_URL_TEMPLATE"
-  url="${url//\{PHONE\}/$phone}"
-  url="${url//\{APIKEY\}/$apikey}"
-  url="${url//\{TEXT\}/$text_enc}"
-else
-  case "$channel" in
-    whatsapp)
-      url="https://api.callmebot.com/whatsapp.php?phone=${phone}&apikey=${apikey}&text=${text_enc}"
-      ;;
-    signal)
-      url="https://api.callmebot.com/signal/send.php?phone=${phone}&apikey=${apikey}&text=${text_enc}"
-      ;;
-    telegram)
-      # For telegram, 'phone' is expected to be @username; apikey is ignored by CallMeBot's text.php.
-      url="https://api.callmebot.com/text.php?user=${phone}&text=${text_enc}"
-      ;;
-    call)
-      # CallMeBot voice call (Telegram-based). 'phone' must be a Telegram @username.
-      url="http://api.callmebot.com/start.php?source=web&user=${phone}&text=${text_enc}"
-      ;;
-    *)
-      log_line "unknown channel '$channel'; skipping"
-      exit 0
-      ;;
-  esac
-fi
+api="https://api.twilio.com/2010-04-01/Accounts/${sid}/Calls.json"
 
-log_line "notify $event → channel=$channel"
-http_code="$(curl -fsS --max-time 10 -o /dev/null -w '%{http_code}' "$url" 2>>"$log" || echo 000)"
+log_line "notify $event → twilio ${from} → ${to}"
+body_file="$(mktemp)"
+http_code="$(curl -sS --max-time 20 \
+  -u "${sid}:${token}" \
+  --data-urlencode "From=${from}" \
+  --data-urlencode "To=${to}" \
+  --data-urlencode "Twiml=${twiml}" \
+  -o "$body_file" -w '%{http_code}' \
+  "$api" 2>>"$log" || echo 000)"
 log_line "  http=$http_code"
+
+# Twilio returns 201 on success; anything else is an error — surface it to the log.
+if [ "$http_code" != "201" ]; then
+  if command -v jq >/dev/null 2>&1; then
+    err_msg="$(jq -r '.message // .detail // "unknown"' "$body_file" 2>/dev/null)"
+  else
+    err_msg="$(head -c 400 "$body_file" 2>/dev/null)"
+  fi
+  log_line "  ERROR from Twilio: ${err_msg}"
+fi
+rm -f "$body_file"
 
 # Never surface errors to Claude — hooks must not block or pollute output.
 exit 0
