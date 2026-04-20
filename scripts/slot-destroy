@@ -78,6 +78,10 @@ fi
 
 log_info "Destroying slot '$SLOT_NAME'..."
 
+# Kill any lingering Claude tmux session for this slot so the SSH session
+# closes cleanly and the destroy isn't blocked by an attached terminal.
+ssh "$SLOT_REMOTE_HOST" "tmux kill-session -t 'claude-${SLOT_NAME}' 2>/dev/null" || true
+
 # Stop containers
 log_info "Stopping containers..."
 ssh "$SLOT_REMOTE_HOST" bash << REMOTE_SCRIPT

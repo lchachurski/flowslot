@@ -136,6 +136,28 @@ if [ ! -f "$SOURCE_DIR/flowslot-ports.sh" ]; then
   echo "See: $SCRIPT_DIR/../templates/flowslot-ports.example.sh"
 fi
 
+# Optional: Claude Code / CallMeBot notification setup
+echo ""
+echo "Enable 'slot claude' (run Claude Code on slots, phone-call on finish)?"
+read -r -p "Configure now? [y/N] " ENABLE_CLAUDE
+CALLMEBOT_PHONE=""
+CALLMEBOT_APIKEY=""
+CALLMEBOT_CHANNEL="whatsapp"
+SLOT_CLAUDE_DEFAULT_VAL="remote"
+if [[ "$ENABLE_CLAUDE" =~ ^[Yy]$ ]]; then
+  echo "  CallMeBot channel (whatsapp | signal | telegram | call):"
+  read -r -p "  [whatsapp]: " CHANNEL_INPUT
+  CALLMEBOT_CHANNEL="${CHANNEL_INPUT:-whatsapp}"
+  echo "  Phone number (international format, e.g. +46701234567; for 'telegram'/'call' use @username):"
+  read -r -p "  phone: " CALLMEBOT_PHONE
+  echo "  CallMeBot API key (get one at callmebot.com; skip with empty for 'telegram'):"
+  read -r -s -p "  apikey: " CALLMEBOT_APIKEY
+  echo ""
+  echo "  Default 'slot claude' target (remote | local):"
+  read -r -p "  [remote]: " DEFAULT_INPUT
+  SLOT_CLAUDE_DEFAULT_VAL="${DEFAULT_INPUT:-remote}"
+fi
+
 # Create .slotconfig
 cat > ".slotconfig" << EOF
 # Created by: slot init
@@ -150,6 +172,13 @@ SLOT_REMOTE_BASE="$REMOTE_BASE"
 SLOT_AWS_INSTANCE_ID="$AWS_INSTANCE_ID"
 SLOT_AWS_REGION="$AWS_REGION"
 SLOT_COMPOSE_FILES="$COMPOSE_FILES"
+
+# Claude Code integration ('slot claude'). Leave phone/apikey empty to disable
+# the phone-call notification hook.
+FLOWSLOT_CALLMEBOT_PHONE="$CALLMEBOT_PHONE"
+FLOWSLOT_CALLMEBOT_APIKEY="$CALLMEBOT_APIKEY"
+FLOWSLOT_CALLMEBOT_CHANNEL="$CALLMEBOT_CHANNEL"
+SLOT_CLAUDE_DEFAULT="$SLOT_CLAUDE_DEFAULT_VAL"
 EOF
 
 echo ""
