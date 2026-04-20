@@ -8,7 +8,20 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-04-20
+
 ### Added
+- **`slot claude` — run Claude Code on slots with phone-call notifications**
+  - Interactive tmux session on the slot by default (survives laptop sleep)
+  - `slot claude --headless "<prompt>"` streams `stream-json` output and still fires notifications
+  - `slot claude --local` runs Claude against your local source dir (no SSH)
+  - `slot claude attach` reattaches to a running session; `slot claude logs [-f]` tails the notify log
+  - `slot claude bootstrap` (and `--refresh`) for explicit install / auth-sync / hook deploy
+  - First-use auto-provisioning: installs Claude Code on the slot, rsyncs `~/.claude` credentials from your Mac, deploys `~/.flowslot/bin/flowslot-notify`, merges `Stop` and `Notification` hooks into the slot's `~/.claude/settings.json`
+  - Falls back to interactive `/login` inside tmux if credentials don't transfer
+  - Notifications via CallMeBot with configurable channel: `whatsapp`, `signal`, `telegram` messages, or `call` (Telegram voice call). Custom `FLOWSLOT_CALLMEBOT_URL_TEMPLATE` supported.
+  - Permissions on the slot use `--dangerously-skip-permissions` (the slot is an isolated per-branch sandbox; blast radius = `slot destroy`)
+  - `slot self init` prompts for CallMeBot credentials; `slot destroy` tears down any lingering `claude-<slot>` tmux session
 - New desktop layout commands:
   - `slot desktop up` — Launch browser/editor pairs for running slots on sequential macOS Spaces
   - `slot desktop down` — Close only windows managed by desktop up
