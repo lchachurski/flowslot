@@ -1,0 +1,244 @@
+#!/bin/bash
+# Run Claude Code on a slot (or locally). Notify the user via phone call when
+# Claude finishes a task or needs input.
+#
+# Default mode: interactive tmux session on the slot.
+# See `slot claude --help` for other modes.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+FLOWSLOT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# shellcheck source=lib/common.sh
+source "$LIB_DIR/common.sh"
+# shellcheck source=lib/claude.sh
+source "$LIB_DIR/claude.sh"
+
+show_help() {
+  cat << EOF
+Usage: slot claude [options] [prompt...]
+       slot claude <subcommand> [options]
+
+Run Claude Code on a slot. By default drops into a persistent tmux session on
+the remote slot so long agentic tasks survive laptop sleep. You'll get a phone
+call (via CallMeBot) when Claude finishes a task or asks a question.
+
+Subcommands:
+  attach            Reattach to the slot's running Claude tmux session.
+  logs [-f]         Show (or tail) the notify log on the slot.
+  bootstrap         Install Claude + sync creds + deploy notify hook (normally
+                    implicit on first use). Use to refresh after token rotation.
+  status            Show install/auth/session state for the slot.
+
+Options (default mode):
+  --slot <name>     Target slot (default: auto-detect from current directory).
+  --local           Run Claude locally in SLOT_SOURCE_DIR, no SSH, no hooks.
+  --headless        Non-interactive run. Streams stream-json output locally,
+                    still fires the phone call when done.
+  --silent          Suppress the phone call for this run (env FLOWSLOT_SILENT=1).
+  --refresh         Force re-run of install / auth sync / hook deploy.
+  -h, --help        Show this help.
+
+Examples:
+  slot claude                                 # Interactive tmux on the current slot
+  slot claude "refactor src/db.ts"            # Interactive, opens with this prompt
+  slot claude --headless "run the test suite and summarize failures"
+  slot claude --local                         # Run locally instead
+  slot claude attach                          # Reattach to existing session
+  slot claude logs -f                         # Tail notify log on the slot
+EOF
+}
+
+# -----------------------------------------------------------------------------
+# Argument parsing
+# -----------------------------------------------------------------------------
+
+MODE=""              # "", "attach", "logs", "bootstrap", "status"
+LOCAL=0
+HEADLESS=0
+SILENT=0
+REFRESH=0
+FOLLOW=0
+EXPLICIT_SLOT=""
+PROMPT_ARGS=()
+
+# First positional may be a subcommand keyword.
+if [ $# -gt 0 ]; then
+  case "$1" in
+    attach|logs|bootstrap|status) MODE="$1"; shift ;;
+    -h|--help) show_help; exit 0 ;;
+  esac
+fi
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --slot)      EXPLICIT_SLOT="${2:-}"; shift 2 ;;
+    --local)     LOCAL=1; shift ;;
+    --headless)  HEADLESS=1; shift ;;
+    --silent)    SILENT=1; shift ;;
+    --refresh)   REFRESH=1; shift ;;
+    -f|--follow) FOLLOW=1; shift ;;
+    -h|--help)   show_help; exit 0 ;;
+    --)          shift; PROMPT_ARGS+=("$@"); break ;;
+    *)           PROMPT_ARGS+=("$1"); shift ;;
+  esac
+done
+
+# Default-mode flag from .slotconfig: flip to --local unless explicitly overridden.
+if [ "$MODE" = "" ] && [ $LOCAL -eq 0 ] && [ "${SLOT_CLAUDE_DEFAULT:-remote}" = "local" ]; then
+  LOCAL=1
+fi
+
+# -----------------------------------------------------------------------------
+# Local mode: just exec claude in SLOT_SOURCE_DIR. No SSH, no hooks.
+# -----------------------------------------------------------------------------
+if [ $LOCAL -eq 1 ]; then
+  require_cmd claude
+  target_dir="${SLOT_SOURCE_DIR:-$PWD}"
+  [ -d "$target_dir" ] || die "SLOT_SOURCE_DIR not set or doesn't exist: $target_dir"
+  cd "$target_dir"
+  if [ $HEADLESS -eq 1 ]; then
+    [ ${#PROMPT_ARGS[@]} -gt 0 ] || die "--headless requires a prompt"
+    exec claude -p "${PROMPT_ARGS[*]}"
+  else
+    exec claude "${PROMPT_ARGS[@]}"
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# Remote mode: need slot name + remote path.
+# -----------------------------------------------------------------------------
+[ -n "${SLOT_REMOTE_HOST:-}" ] || die "SLOT_REMOTE_HOST not set (is .slotconfig loaded?)"
+[ -n "${SLOT_REMOTE_BASE:-}" ] || die "SLOT_REMOTE_BASE not set (is .slotconfig loaded?)"
+
+if [ -n "$EXPLICIT_SLOT" ]; then
+  SLOT_NAME="$EXPLICIT_SLOT"
+elif SLOT_NAME=$(detect_slot_name 2>/dev/null); then
+  :
+else
+  die "Slot name required. Use --slot <name> or run from inside a slot directory."
+fi
+validate_slot_name "$SLOT_NAME"
+
+REMOTE_PATH=$(find_slot_dir "$SLOT_REMOTE_BASE" "$SLOT_NAME" "$SLOT_REMOTE_HOST") \
+  || die "Slot '$SLOT_NAME' not found on $SLOT_REMOTE_HOST:$SLOT_REMOTE_BASE. Run 'slot create $SLOT_NAME' first."
+
+TMUX_SESSION=$(claude_tmux_session "$SLOT_NAME")
+
+# -----------------------------------------------------------------------------
+# Simple subcommands (attach, logs, status)
+# -----------------------------------------------------------------------------
+case "$MODE" in
+  attach)
+    if ! ssh "$SLOT_REMOTE_HOST" "tmux has-session -t '$TMUX_SESSION' 2>/dev/null"; then
+      die "No Claude session on slot '$SLOT_NAME'. Start one with: slot claude --slot $SLOT_NAME"
+    fi
+    exec remote_ssh_tty "$SLOT_REMOTE_HOST" "tmux attach -t '$TMUX_SESSION'"
+    ;;
+  logs)
+    if [ $FOLLOW -eq 1 ]; then
+      exec remote_ssh_tty "$SLOT_REMOTE_HOST" 'tail -F "$HOME/.flowslot/claude-session.log" 2>/dev/null'
+    else
+      exec ssh "$SLOT_REMOTE_HOST" 'test -f "$HOME/.flowslot/claude-session.log" && cat "$HOME/.flowslot/claude-session.log" || echo "(no log yet)"'
+    fi
+    ;;
+  status)
+    echo "Slot:        $SLOT_NAME"
+    echo "Remote path: $SLOT_REMOTE_HOST:$REMOTE_PATH"
+    if claude_is_ready "$SLOT_REMOTE_HOST"; then
+      echo "Bootstrap:   ready"
+    else
+      echo "Bootstrap:   not yet (first 'slot claude' will set up)"
+    fi
+    if ssh "$SLOT_REMOTE_HOST" "tmux has-session -t '$TMUX_SESSION' 2>/dev/null"; then
+      echo "Tmux:        session '$TMUX_SESSION' running"
+    else
+      echo "Tmux:        no active session"
+    fi
+    exit 0
+    ;;
+esac
+
+# -----------------------------------------------------------------------------
+# Bootstrap: install claude, sync creds, deploy hook. Idempotent.
+# -----------------------------------------------------------------------------
+bootstrap_slot() {
+  ensure_claude_installed "$SLOT_REMOTE_HOST"
+  if ! sync_claude_auth "$SLOT_REMOTE_HOST"; then
+    log_warn "Auth sync skipped or failed — you'll need to /login inside the tmux session."
+  fi
+  deploy_notify_hook "$SLOT_REMOTE_HOST" "$FLOWSLOT_ROOT"
+
+  if verify_claude_auth "$SLOT_REMOTE_HOST"; then
+    mark_claude_ready "$SLOT_REMOTE_HOST"
+    log_info "Claude is ready on slot '$SLOT_NAME'."
+  else
+    log_warn "Claude is installed but auth check failed."
+    log_warn "Dropping into tmux; inside Claude run '/login' once, then ctrl-b d to detach."
+  fi
+}
+
+if [ "$MODE" = "bootstrap" ] || [ $REFRESH -eq 1 ] || ! claude_is_ready "$SLOT_REMOTE_HOST"; then
+  bootstrap_slot
+fi
+
+[ "$MODE" = "bootstrap" ] && exit 0
+
+# -----------------------------------------------------------------------------
+# Build the remote claude invocation.
+# -----------------------------------------------------------------------------
+REMOTE_ENV=(
+  "FLOWSLOT_SLOT_NAME='$SLOT_NAME'"
+  "FLOWSLOT_PROJECT_NAME='${SLOT_PROJECT_NAME:-unknown}'"
+)
+[ $SILENT -eq 1 ] && REMOTE_ENV+=("FLOWSLOT_SILENT=1")
+
+REMOTE_ENV_STR="${REMOTE_ENV[*]}"
+
+CLAUDE_FLAGS="--dangerously-skip-permissions"
+
+if [ $HEADLESS -eq 1 ]; then
+  # -----------------------------------------------------------------------------
+  # Headless mode: stream-json over SSH, pretty-printed locally.
+  # -----------------------------------------------------------------------------
+  [ ${#PROMPT_ARGS[@]} -gt 0 ] || die "--headless requires a prompt"
+  # Escape prompt for single-quoted embedding.
+  prompt_str="${PROMPT_ARGS[*]}"
+  prompt_escaped="${prompt_str//\'/\'\\\'\'}"
+
+  log_info "Running Claude on slot '$SLOT_NAME' (headless)..."
+  # shellcheck disable=SC2029
+  ssh "$SLOT_REMOTE_HOST" "export $REMOTE_ENV_STR; \
+    export PATH=\"\$HOME/.local/bin:\$PATH\"; \
+    cd '$REMOTE_PATH' && \
+    claude -p $CLAUDE_FLAGS --output-format stream-json --verbose '$prompt_escaped'" \
+    | pretty_print_stream_json
+  exit ${PIPESTATUS[0]}
+fi
+
+# -----------------------------------------------------------------------------
+# Interactive tmux mode (default).
+# -----------------------------------------------------------------------------
+# Build the inner command that tmux will run.
+if [ ${#PROMPT_ARGS[@]} -gt 0 ]; then
+  prompt_str="${PROMPT_ARGS[*]}"
+  prompt_escaped="${prompt_str//\'/\'\\\'\'}"
+  INNER="claude $CLAUDE_FLAGS '$prompt_escaped'"
+else
+  INNER="claude $CLAUDE_FLAGS"
+fi
+
+# Build the remote shell command:
+#   1. Export FLOWSLOT_* for hook context.
+#   2. Ensure PATH picks up ~/.local/bin.
+#   3. tmux new-session -A -s <name> -c <path> <claude command>
+#      -A attaches if session exists, creates otherwise.
+REMOTE_CMD="export $REMOTE_ENV_STR; \
+export PATH=\"\$HOME/.local/bin:\$PATH\"; \
+tmux new-session -A -s '$TMUX_SESSION' -c '$REMOTE_PATH' \"$INNER\""
+
+log_info "Attaching to Claude on slot '$SLOT_NAME' (tmux: $TMUX_SESSION)..."
+log_info "  Detach with Ctrl-b d — the session keeps running."
+exec remote_ssh_tty "$SLOT_REMOTE_HOST" "$REMOTE_CMD"

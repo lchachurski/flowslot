@@ -33,3 +33,22 @@ export TS_SPLIT_DOMAIN="flowslot.cc"
 # =============================================================================
 export AWS_KEY_NAME="flowslot-dev"
 
+# =============================================================================
+# OPTIONAL: `slot claude` — run Claude Code on slots with phone-call notifications.
+#
+# Per-project values are written to .slotconfig by `slot self init`; the ones
+# below are documented here for reference / manual configuration.
+#
+# FLOWSLOT_CALLMEBOT_PHONE    Phone number in international format (e.g. +46701234567)
+#                             For channel=telegram or channel=call, use a @username instead.
+# FLOWSLOT_CALLMEBOT_APIKEY   Your CallMeBot API key (get one at https://callmebot.com).
+# FLOWSLOT_CALLMEBOT_CHANNEL  whatsapp | signal | telegram | call  (default: whatsapp)
+#                               whatsapp/signal   → message (WhatsApp/Signal)
+#                               telegram          → Telegram message
+#                               call              → Telegram voice call (rings your phone)
+# FLOWSLOT_CALLMEBOT_URL_TEMPLATE  Optional override — a URL containing {PHONE},
+#                                  {APIKEY}, {TEXT} placeholders. Takes precedence
+#                                  over channel-based defaults.
+# SLOT_CLAUDE_DEFAULT         remote (default) or local — flip `slot claude` default.
+# =============================================================================
+
