@@ -1,0 +1,175 @@
+#!/bin/bash
+# `slot claude voice` — two-way voice chat with Claude Code on a slot.
+#
+# Architecture: call-me (forked from ZeframLou/call-me) runs as an MCP server
+# launched by Claude Code on the slot; Tailscale Funnel exposes the HTTP
+# webhook endpoint to Twilio over a real HTTPS cert. See
+# /Users/lukasz/.claude/plans/we-need-to-extend-synchronous-pond.md for the
+# full design.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+FLOWSLOT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# shellcheck source=lib/common.sh
+source "$LIB_DIR/common.sh"
+# shellcheck source=lib/claude-voice.sh
+source "$LIB_DIR/claude-voice.sh"
+
+show_help() {
+  cat << EOF
+Usage: slot claude voice <subcommand>
+
+Two-way phone conversations with Claude Code on a slot.
+
+Subcommands:
+  enable        Install call-me on the slot, configure Tailscale Funnel, and
+                register the call-me MCP server. Prints the webhook URL you
+                must paste into your Twilio phone number's Voice configuration.
+  disable       Tear down Funnel, unregister the MCP server. Leaves installed
+                files in place so re-enabling is fast.
+  status        Show current state: MCP registered? Funnel URL? Twilio creds?
+  logs [-f]     Show recent call-me / MCP output. This isn't a systemd service —
+                call-me runs as a child of Claude's MCP-launched subprocess —
+                so logs live in your Claude session. Prints the relevant path.
+  refresh-fork  Pull the pinned SHA on the slot's call-me clone, reinstall deps.
+                Use after bumping FLOWSLOT_CALL_ME_DEFAULT_SHA in source.
+
+Prerequisites (one-time, per tailnet):
+  - Enable Tailscale Funnel on your tailnet:
+    https://login.tailscale.com/admin/acls  — add the "funnel" node attribute
+    to the node-attribute set for the EC2 machine.
+
+Prerequisites (per project):
+  - FLOWSLOT_TWILIO_* set in .slotconfig (slot self init prompts for these)
+  - FLOWSLOT_OPENAI_API_KEY — prompted once on first 'voice enable'
+EOF
+}
+
+case "${1:-}" in
+  ""|-h|--help) show_help; exit 0 ;;
+esac
+
+ACTION="$1"; shift || true
+
+[ -n "${SLOT_REMOTE_HOST:-}" ] || die "SLOT_REMOTE_HOST not set (is .slotconfig loaded?)"
+
+case "$ACTION" in
+  # -----------------------------------------------------------------------------
+  enable)
+    ensure_twilio_configured || exit 1
+    ensure_openai_key_configured || exit 1
+
+    ensure_bun_installed "$SLOT_REMOTE_HOST"
+    ensure_call_me_cloned "$SLOT_REMOTE_HOST"
+
+    log_info "Configuring Tailscale Funnel on slot..."
+    tailscale_funnel_enable "$SLOT_REMOTE_HOST" "$FLOWSLOT_VOICE_LOCAL_PORT" \
+      || die "Failed to enable Tailscale Funnel. If the slot node doesn't have the 'funnel' attribute, add it at https://login.tailscale.com/admin/acls and retry."
+
+    PUBLIC_URL=""
+    FQDN="$(get_tailscale_fqdn "$SLOT_REMOTE_HOST")"
+    if [ -n "$FQDN" ]; then
+      PUBLIC_URL="https://${FQDN}"
+    else
+      log_warn "Could not determine Tailscale fqdn via 'tailscale status --json'."
+      log_warn "Falling back to 'tailscale funnel status --json' parsing..."
+      PUBLIC_URL="$(get_tailscale_funnel_url "$SLOT_REMOTE_HOST")"
+    fi
+    [ -n "$PUBLIC_URL" ] || die "Could not determine Funnel URL; Funnel may not be active."
+
+    log_info "Writing call-me env to slot..."
+    write_call_me_env "$SLOT_REMOTE_HOST" "$PUBLIC_URL"
+
+    log_info "Registering call-me MCP in ~/.claude/settings.json on slot..."
+    register_mcp_in_settings "$SLOT_REMOTE_HOST"
+
+    ssh "$SLOT_REMOTE_HOST" 'date -u +%FT%TZ > "$HOME/.flowslot/voice-ready"'
+
+    echo ""
+    success "Voice chat enabled for this slot."
+    echo ""
+    echo "  Funnel URL:  $PUBLIC_URL"
+    echo ""
+    echo "Configure Twilio:"
+    echo "  1. Go to https://console.twilio.com/ → Phone Numbers → Manage → Active"
+    echo "  2. Click your number: ${FLOWSLOT_TWILIO_FROM:-<your From>}"
+    echo "  3. Under Voice Configuration, set 'A Call Comes In' → Webhook →"
+    echo "     URL:    ${PUBLIC_URL}/incoming"
+    echo "     Method: HTTP POST"
+    echo "  4. Save."
+    echo ""
+    echo "Then start 'slot claude' on this slot and ask Claude to call you —"
+    echo "Claude now has the 'initiate_call' MCP tool available."
+    ;;
+
+  # -----------------------------------------------------------------------------
+  disable)
+    log_info "Disabling Tailscale Funnel..."
+    tailscale_funnel_disable "$SLOT_REMOTE_HOST"
+
+    log_info "Unregistering call-me MCP from ~/.claude/settings.json..."
+    unregister_mcp_in_settings "$SLOT_REMOTE_HOST"
+
+    ssh "$SLOT_REMOTE_HOST" 'rm -f "$HOME/.flowslot/voice-ready"' 2>/dev/null || true
+
+    success "Voice chat disabled. Installed files preserved under ~/.flowslot/call-me."
+    ;;
+
+  # -----------------------------------------------------------------------------
+  status)
+    READY="no"
+    ssh "$SLOT_REMOTE_HOST" 'test -f "$HOME/.flowslot/voice-ready"' 2>/dev/null && READY="yes"
+
+    FUNNEL_OUT="$(ssh "$SLOT_REMOTE_HOST" 'tailscale funnel status 2>/dev/null' 2>/dev/null | head -20)"
+    MCP_PRESENT="$(ssh "$SLOT_REMOTE_HOST" 'jq -r ".mcpServers[\"call-me\"].command // empty" "$HOME/.claude/settings.json" 2>/dev/null' 2>/dev/null || true)"
+    FQDN="$(get_tailscale_fqdn "$SLOT_REMOTE_HOST")"
+
+    echo "Voice status for $SLOT_REMOTE_HOST"
+    echo "  Bootstrap marker: $READY"
+    echo "  MCP registered:   $([ -n "$MCP_PRESENT" ] && echo yes || echo no)"
+    if [ -n "$FQDN" ]; then
+      echo "  Tailscale fqdn:   $FQDN"
+      echo "  Webhook URL:      https://${FQDN}/incoming"
+    fi
+    echo ""
+    if [ -n "$FUNNEL_OUT" ]; then
+      echo "$FUNNEL_OUT"
+    else
+      echo "  (Funnel inactive)"
+    fi
+    ;;
+
+  # -----------------------------------------------------------------------------
+  logs)
+    # Not a systemd service — call-me logs flow through Claude's tmux session,
+    # which means they're in the tmux scrollback when Claude was running.
+    cat << EOF
+call-me runs as an MCP subprocess of Claude Code. It's not a systemd service,
+so there's no separate log file.
+
+To see its output:
+  1. Reattach to the slot's Claude session: slot claude attach
+  2. Press Ctrl-b [ to enter tmux copy mode, then PgUp to scroll back.
+
+Tailscale Funnel status (what's currently exposed):
+EOF
+    ssh "$SLOT_REMOTE_HOST" 'tailscale funnel status 2>/dev/null' || true
+    ;;
+
+  # -----------------------------------------------------------------------------
+  refresh-fork)
+    ensure_call_me_cloned "$SLOT_REMOTE_HOST"
+    success "call-me fork refreshed to $(_voice_pinned_sha | head -c 10) on slot."
+    ;;
+
+  # -----------------------------------------------------------------------------
+  *)
+    log_error "Unknown subcommand: $ACTION"
+    echo ""
+    show_help
+    exit 1
+    ;;
+esac

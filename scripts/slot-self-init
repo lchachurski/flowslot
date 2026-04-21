@@ -136,14 +136,15 @@ if [ ! -f "$SOURCE_DIR/flowslot-ports.sh" ]; then
   echo "See: $SCRIPT_DIR/../templates/flowslot-ports.example.sh"
 fi
 
-# Optional: Claude Code / Twilio notification setup
+# Optional: Claude Code / Twilio voice chat setup
 echo ""
-echo "Enable 'slot claude' (run Claude Code on slots, phone-call on finish via Twilio)?"
+echo "Enable 'slot claude voice' (phone conversations with Claude via Twilio)?"
 read -r -p "Configure now? [y/N] " ENABLE_CLAUDE
 TWILIO_ACCOUNT_SID=""
 TWILIO_AUTH_TOKEN=""
 TWILIO_FROM=""
 TWILIO_TO=""
+OPENAI_API_KEY=""
 SLOT_CLAUDE_DEFAULT_VAL="remote"
 if [[ "$ENABLE_CLAUDE" =~ ^[Yy]$ ]]; then
   echo "  Twilio Account SID (from console.twilio.com, starts with 'AC'):"
@@ -155,6 +156,9 @@ if [[ "$ENABLE_CLAUDE" =~ ^[Yy]$ ]]; then
   read -r -p "  from [+15551234567]: " TWILIO_FROM
   echo "  Your personal phone number (E.164 format, the number that rings):"
   read -r -p "  to [+46701234567]: " TWILIO_TO
+  echo "  OpenAI API key (for call-me STT/TTS; leave blank to set later):"
+  read -r -s -p "  openai key (optional): " OPENAI_API_KEY
+  echo ""
   echo "  Default 'slot claude' target (remote | local):"
   read -r -p "  [remote]: " DEFAULT_INPUT
   SLOT_CLAUDE_DEFAULT_VAL="${DEFAULT_INPUT:-remote}"
@@ -175,12 +179,13 @@ SLOT_AWS_INSTANCE_ID="$AWS_INSTANCE_ID"
 SLOT_AWS_REGION="$AWS_REGION"
 SLOT_COMPOSE_FILES="$COMPOSE_FILES"
 
-# Claude Code integration ('slot claude'). Leave any Twilio field empty to disable
-# the phone-call notification hook.
+# Claude Code integration ('slot claude voice'). Leave any field empty to disable
+# the phone-call feature — it can be configured later via 'slot claude voice enable'.
 FLOWSLOT_TWILIO_ACCOUNT_SID="$TWILIO_ACCOUNT_SID"
 FLOWSLOT_TWILIO_AUTH_TOKEN="$TWILIO_AUTH_TOKEN"
 FLOWSLOT_TWILIO_FROM="$TWILIO_FROM"
 FLOWSLOT_TWILIO_TO="$TWILIO_TO"
+FLOWSLOT_OPENAI_API_KEY="$OPENAI_API_KEY"
 SLOT_CLAUDE_DEFAULT="$SLOT_CLAUDE_DEFAULT_VAL"
 EOF
 

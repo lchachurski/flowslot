@@ -8,20 +8,44 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-04-21
+
+### Added
+- **`slot claude voice enable / disable / status / logs / refresh-fork`** —
+  two-way phone conversations with Claude Code on a slot. Claude gains an
+  `initiate_call` MCP tool (plus `continue_call`, `speak_to_user`, `end_call`).
+  When Claude invokes it, your phone rings; you pick up and actually talk to
+  the running Claude session — hear a summary, ask follow-ups, kick off the
+  next task, all by voice. Multi-turn conversation supported.
+- Voice uses a **forked** [`ZeframLou/call-me`](https://github.com/lchachurski/call-me)
+  MCP server (MIT) installed on the slot and registered in `~/.claude/settings.json`.
+  The fork adds a `CALLME_PUBLIC_URL` env var so we can skip call-me's default
+  ngrok tunnel; upstream PR at
+  [ZeframLou/call-me#35](https://github.com/ZeframLou/call-me/pull/35).
+- **Tailscale Funnel** is used to expose the webhook endpoint with a real
+  HTTPS cert (Twilio rejects self-signed). No EC2 security group changes,
+  no Elastic IP, no Let's Encrypt plumbing.
+- Config vars (written by `slot self init` → `.slotconfig`):
+  - `FLOWSLOT_OPENAI_API_KEY` — required for call-me's Whisper (STT) + `tts-1` (TTS)
+  - `FLOWSLOT_VOICE_PINNED_SHA` — override the call-me commit SHA (default in `scripts/lib/claude-voice.sh`)
+- New files:
+  - `scripts/slot-claude-voice` — dispatcher
+  - `scripts/lib/claude-voice.sh` — helpers (bun install, fork clone, env file, Funnel on/off, MCP registration)
+- `slot destroy` now tears down voice chat (Funnel + MCP registration) before
+  removing the remote directory to avoid orphaned Funnel config.
+
 ### Removed
 - `infra/flowslot-notify.sh` and the associated `Stop` / `Notification` hook
-  deployment have been deleted. The built-in notification path was a one-way
-  "task finished" nudge, which isn't what we actually want.
-- `templates/claude-settings.example.json` is no longer needed.
-- `deploy_notify_hook` function removed from `scripts/lib/claude.sh`.
-- `bootstrap_slot` in `scripts/slot-claude` no longer deploys a hook.
+  deployment (carried over from 2.9.x cleanup). The one-way "task finished"
+  nudge is superseded by the two-way voice chat.
+- `slot claude logs` subcommand and the `-f` / `--follow` flag — that log path
+  only existed for the removed flowslot-notify script. `slot claude voice logs`
+  provides the equivalent for voice-chat state.
 
-### Kept
-- `FLOWSLOT_TWILIO_ACCOUNT_SID` / `_AUTH_TOKEN` / `_FROM` / `_TO` / `_VOICE`
-  variables in `.slotconfig`, `config.example`, and `slot self init` prompts.
-  These are reserved for the upcoming `slot claude voice` subcommand, which
-  will integrate `ZeframLou/call-me` (or a fork) to provide real bi-directional
-  voice conversations with the running Claude session.
+### Prerequisites (one-time)
+- Enable Tailscale Funnel for your EC2 node in the tailnet ACL:
+  https://login.tailscale.com/admin/acls
+- GitHub CLI (`gh`) authenticated if you want to bump the fork SHA yourself.
 
 ## [2.9.1] - 2026-04-20
 

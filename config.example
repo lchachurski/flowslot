@@ -34,13 +34,13 @@ export TS_SPLIT_DOMAIN="flowslot.cc"
 export AWS_KEY_NAME="flowslot-dev"
 
 # =============================================================================
-# OPTIONAL: `slot claude` — run Claude Code on slots with real phone-call
-# notifications via Twilio Voice. When Claude finishes a task or asks for your
-# input, your phone rings with a TwiML-spoken message (works on locked phones,
-# bypasses Do Not Disturb if you set it as an emergency contact).
+# OPTIONAL: `slot claude voice` — two-way phone conversations with Claude Code
+# on a slot, via Twilio Voice + OpenAI STT/TTS + a forked copy of
+# ZeframLou/call-me (MCP server) running on the slot. The webhook endpoint
+# is exposed to Twilio through Tailscale Funnel, so no EC2 security-group
+# changes or public IP are needed.
 #
-# Per-project values are written to .slotconfig by `slot self init`; the ones
-# below are documented here for reference / manual configuration.
+# Per-project values are written to .slotconfig by `slot self init`.
 #
 # FLOWSLOT_TWILIO_ACCOUNT_SID  Your Twilio Account SID (starts with "AC…"),
 #                              from https://console.twilio.com/.
@@ -50,10 +50,18 @@ export AWS_KEY_NAME="flowslot-dev"
 # FLOWSLOT_TWILIO_TO           Your personal phone number in E.164 (the one that rings).
 #                              Trial accounts must verify this number first (Console →
 #                              Phone Numbers → Verified Caller IDs).
-# FLOWSLOT_TWILIO_VOICE        Optional TwiML voice (default: "alice"). Examples:
-#                              "Polly.Matthew-Neural", "Polly.Joanna-Neural".
+# FLOWSLOT_OPENAI_API_KEY      Your OpenAI API key; required for call-me's
+#                              speech-to-text (Whisper) and text-to-speech.
+#                              Get one at https://platform.openai.com/api-keys.
+# FLOWSLOT_VOICE_PINNED_SHA    Optional: override the commit SHA of
+#                              lchachurski/call-me that flowslot pins.
 # SLOT_CLAUDE_DEFAULT          remote (default) or local — flip `slot claude` default.
 #
-# Cost: ~$1/mo for a Twilio number + ~$0.013 per call. Free trial gives $15 credit.
+# One-time: enable Tailscale Funnel for the EC2 machine in your tailnet ACL
+# (https://login.tailscale.com/admin/acls), otherwise 'slot claude voice enable'
+# will fail with a clear error.
+#
+# Cost: ~$1/mo for a Twilio number, ~$0.013/call minute + OpenAI per-token.
+# Tailscale Funnel is free on Personal and Starter plans.
 # =============================================================================
 

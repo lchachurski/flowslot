@@ -24,16 +24,15 @@ Usage: slot claude [options] [prompt...]
 Run Claude Code on a slot. By default drops into a persistent tmux session on
 the remote slot so long agentic tasks survive laptop sleep.
 
-Phone-call notifications are not wired up in this build — the Twilio credentials
-in .slotconfig are preserved for the upcoming `slot claude voice` subcommand
-(see CHANGELOG).
+For two-way phone conversations with Claude (pick up, talk, ask follow-ups),
+see `slot claude voice enable`.
 
 Subcommands:
   attach            Reattach to the slot's running Claude tmux session.
-  logs [-f]         Show (or tail) the notify log on the slot.
-  bootstrap         Install Claude + sync creds + deploy notify hook (normally
-                    implicit on first use). Use to refresh after token rotation.
+  bootstrap         Install Claude + sync creds (normally implicit on first use).
+                    Use to refresh after OAuth token rotation.
   status            Show install/auth/session state for the slot.
+  voice <action>    See `slot claude voice --help` for phone-conversation mode.
 
 Options (default mode):
   --slot <name>     Target slot (default: auto-detect from current directory).
@@ -58,12 +57,11 @@ EOF
 # Argument parsing
 # -----------------------------------------------------------------------------
 
-MODE=""              # "", "attach", "logs", "bootstrap", "status"
+MODE=""              # "", "attach", "bootstrap", "status"
 LOCAL=0
 HEADLESS=0
 SILENT=0
 REFRESH=0
-FOLLOW=0
 EXPLICIT_SLOT=""
 PROMPT_ARGS=()
 
@@ -74,10 +72,9 @@ while [ $# -gt 0 ]; do
     --headless)  HEADLESS=1; shift ;;
     --silent)    SILENT=1; shift ;;
     --refresh)   REFRESH=1; shift ;;
-    -f|--follow) FOLLOW=1; shift ;;
     -h|--help)   show_help; exit 0 ;;
     --)          shift; PROMPT_ARGS+=("$@"); break ;;
-    attach|logs|bootstrap|status)
+    attach|bootstrap|status)
       # Subcommand keyword — accept it wherever it appears, but only once.
       if [ -z "$MODE" ]; then MODE="$1"; else PROMPT_ARGS+=("$1"); fi
       shift ;;
@@ -127,7 +124,7 @@ REMOTE_PATH=$(find_slot_dir "$SLOT_REMOTE_BASE" "$SLOT_NAME" "$SLOT_REMOTE_HOST"
 TMUX_SESSION=$(claude_tmux_session "$SLOT_NAME")
 
 # -----------------------------------------------------------------------------
-# Simple subcommands (attach, logs, status)
+# Simple subcommands (attach, status)
 # -----------------------------------------------------------------------------
 case "$MODE" in
   attach)
@@ -136,14 +133,6 @@ case "$MODE" in
     fi
     remote_ssh_tty "$SLOT_REMOTE_HOST" "tmux attach -t '$TMUX_SESSION'"
     exit $?
-    ;;
-  logs)
-    if [ $FOLLOW -eq 1 ]; then
-      remote_ssh_tty "$SLOT_REMOTE_HOST" 'tail -F "$HOME/.flowslot/claude-session.log" 2>/dev/null'
-      exit $?
-    else
-      exec ssh "$SLOT_REMOTE_HOST" 'test -f "$HOME/.flowslot/claude-session.log" && cat "$HOME/.flowslot/claude-session.log" || echo "(no log yet)"'
-    fi
     ;;
   status)
     echo "Slot:        $SLOT_NAME"

@@ -78,6 +78,13 @@ fi
 
 log_info "Destroying slot '$SLOT_NAME'..."
 
+# If voice chat is enabled on this host, tear it down first so we don't leave
+# an orphaned Tailscale Funnel config pointing at a port nothing listens on.
+if ssh "$SLOT_REMOTE_HOST" 'test -f "$HOME/.flowslot/voice-ready"' 2>/dev/null; then
+  log_info "Tearing down voice chat (Funnel + MCP registration)..."
+  "$SCRIPT_DIR/slot-claude-voice" disable 2>/dev/null || true
+fi
+
 # Kill any lingering Claude tmux session for this slot so the SSH session
 # closes cleanly and the destroy isn't blocked by an attached terminal.
 ssh "$SLOT_REMOTE_HOST" "tmux kill-session -t 'claude-${SLOT_NAME}' 2>/dev/null" || true

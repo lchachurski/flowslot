@@ -35,11 +35,13 @@ SLOT OPERATIONS:
   compose [name]    Proxy docker compose commands to remote slot
 
 AI:
-  claude [prompt]   Run Claude Code on a slot (interactive tmux by default)
-  claude --headless <prompt>
-                    Run Claude headlessly on the slot
-  claude --local    Run Claude locally instead of on the slot
-  claude attach     Reattach to a slot's running Claude tmux session
+  claude [prompt]       Run Claude Code on a slot (interactive tmux by default)
+  claude --headless <p> Run Claude headlessly on the slot
+  claude --local        Run Claude locally instead of on the slot
+  claude attach         Reattach to a slot's running Claude tmux session
+  claude voice enable   Start voice chat (phone conversations with Claude)
+  claude voice disable  Stop voice chat
+  claude voice status   Show voice chat state
 
 DESKTOP:
   desktop up        Launch desktop layout (one Space per running slot)
@@ -169,7 +171,13 @@ case "$1" in
     set -a
     source "$CONFIG_FILE"
     set +a
-    "$SCRIPT_DIR/slot-claude" "$@"
+    # Nested subcommand: `slot claude voice <action>` dispatches to slot-claude-voice.
+    if [ "${1:-}" = "voice" ]; then
+      shift
+      "$SCRIPT_DIR/slot-claude-voice" "$@"
+    else
+      "$SCRIPT_DIR/slot-claude" "$@"
+    fi
     ;;
   desktop)
     shift
