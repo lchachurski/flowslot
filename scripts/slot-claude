@@ -22,8 +22,11 @@ Usage: slot claude [options] [prompt...]
        slot claude <subcommand> [options]
 
 Run Claude Code on a slot. By default drops into a persistent tmux session on
-the remote slot so long agentic tasks survive laptop sleep. You'll get a phone
-call (via Twilio) when Claude finishes a task or asks a question.
+the remote slot so long agentic tasks survive laptop sleep.
+
+Phone-call notifications are not wired up in this build — the Twilio credentials
+in .slotconfig are preserved for the upcoming `slot claude voice` subcommand
+(see CHANGELOG).
 
 Subcommands:
   attach            Reattach to the slot's running Claude tmux session.
@@ -167,7 +170,6 @@ bootstrap_slot() {
   if ! sync_claude_auth "$SLOT_REMOTE_HOST"; then
     log_warn "Auth sync skipped or failed — you'll need to /login inside the tmux session."
   fi
-  deploy_notify_hook "$SLOT_REMOTE_HOST" "$FLOWSLOT_ROOT"
 
   if verify_claude_auth "$SLOT_REMOTE_HOST"; then
     mark_claude_ready "$SLOT_REMOTE_HOST"

@@ -5,8 +5,6 @@
 
 # Remote locations, relative to the slot user's $HOME.
 readonly FLOWSLOT_REMOTE_DIR='$HOME/.flowslot'
-readonly FLOWSLOT_NOTIFY_BIN_REL='.flowslot/bin/flowslot-notify'
-readonly FLOWSLOT_NOTIFY_CONF_REL='.flowslot/notify.conf'
 readonly FLOWSLOT_INSTALL_MARKER_REL='.flowslot/claude-installed'
 readonly FLOWSLOT_READY_MARKER_REL='.flowslot/claude-ready'
 
@@ -21,12 +19,12 @@ ensure_claude_installed() {
   log_info "Installing Claude Code on slot (one-time, ~30s)..."
   ssh "$host" bash << 'REMOTE_INSTALL'
     set -e
-    mkdir -p "$HOME/.flowslot/bin"
+    mkdir -p "$HOME/.flowslot"
 
-    # Install prerequisites (jq is needed later for settings.json merge).
-    if ! command -v jq >/dev/null 2>&1; then
+    # Install prerequisites.
+    if ! command -v curl >/dev/null 2>&1; then
       sudo apt-get update -qq
-      sudo apt-get install -y jq curl >/dev/null
+      sudo apt-get install -y curl >/dev/null
     fi
 
     # Run the official installer only if claude isn't present.
@@ -72,57 +70,6 @@ sync_claude_auth() {
   fi
   ssh "$host" 'chmod 600 "$HOME/.claude/credentials.json" 2>/dev/null' || true
   return 0
-}
-
-# Deploy the notify script to the slot and merge hooks into ~/.claude/settings.json.
-# Idempotent; safe to call on every invocation.
-# $1 = ssh host, $2 = absolute path to flowslot repo on local machine.
-deploy_notify_hook() {
-  local host="$1"
-  local flowslot_root="$2"
-
-  # 1) Copy the notify script. (--chmod= is unsupported by macOS's openrsync;
-  # the source file is already 0755 locally and -a preserves perms.)
-  ssh "$host" 'mkdir -p "$HOME/.flowslot/bin"'
-  if ! rsync -az "$flowslot_root/infra/flowslot-notify.sh" \
-    "$host:.flowslot/bin/flowslot-notify"; then
-    log_error "Failed to copy flowslot-notify to slot"
-    return 1
-  fi
-  ssh "$host" 'chmod +x "$HOME/.flowslot/bin/flowslot-notify"' || true
-
-  # 2) Write notify.conf with Twilio creds (0600).
-  # We build the conf file locally and pipe it via stdin — safer than passing
-  # values as ssh positional args, which silently collapses empty strings.
-  local local_tmp
-  local_tmp="$(mktemp)"
-  {
-    printf 'FLOWSLOT_TWILIO_ACCOUNT_SID=%q\n' "${FLOWSLOT_TWILIO_ACCOUNT_SID:-}"
-    printf 'FLOWSLOT_TWILIO_AUTH_TOKEN=%q\n'  "${FLOWSLOT_TWILIO_AUTH_TOKEN:-}"
-    printf 'FLOWSLOT_TWILIO_FROM=%q\n'        "${FLOWSLOT_TWILIO_FROM:-}"
-    printf 'FLOWSLOT_TWILIO_TO=%q\n'          "${FLOWSLOT_TWILIO_TO:-}"
-    if [ -n "${FLOWSLOT_TWILIO_VOICE:-}" ]; then
-      printf 'FLOWSLOT_TWILIO_VOICE=%q\n' "$FLOWSLOT_TWILIO_VOICE"
-    fi
-  } > "$local_tmp"
-  ssh "$host" 'umask 077; cat > "$HOME/.flowslot/notify.conf"' < "$local_tmp"
-  rm -f "$local_tmp"
-
-  # 3) Merge hook block into ~/.claude/settings.json using jq.
-  ssh "$host" bash << 'REMOTE_MERGE'
-    set -e
-    settings="$HOME/.claude/settings.json"
-    notify="$HOME/.flowslot/bin/flowslot-notify"
-    mkdir -p "$(dirname "$settings")"
-    [ -f "$settings" ] || echo '{}' > "$settings"
-
-    tmp="$(mktemp)"
-    jq --arg notify "$notify" '
-      .hooks = (.hooks // {})
-      | .hooks.Stop = [{ matcher: ".*", hooks: [{ type: "command", command: ($notify + " stop") }] }]
-      | .hooks.Notification = [{ matcher: ".*", hooks: [{ type: "command", command: ($notify + " notification") }] }]
-    ' "$settings" > "$tmp" && mv "$tmp" "$settings"
-REMOTE_MERGE
 }
 
 # Quick sanity check that Claude can authenticate headlessly.

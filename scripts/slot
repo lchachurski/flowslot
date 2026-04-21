@@ -37,10 +37,9 @@ SLOT OPERATIONS:
 AI:
   claude [prompt]   Run Claude Code on a slot (interactive tmux by default)
   claude --headless <prompt>
-                    Run Claude headlessly on the slot; phone-call on finish
+                    Run Claude headlessly on the slot
   claude --local    Run Claude locally instead of on the slot
   claude attach     Reattach to a slot's running Claude tmux session
-  claude logs [-f]  Show the notify log on the slot
 
 DESKTOP:
   desktop up        Launch desktop layout (one Space per running slot)

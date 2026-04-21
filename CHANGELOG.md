@@ -8,6 +8,21 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+### Removed
+- `infra/flowslot-notify.sh` and the associated `Stop` / `Notification` hook
+  deployment have been deleted. The built-in notification path was a one-way
+  "task finished" nudge, which isn't what we actually want.
+- `templates/claude-settings.example.json` is no longer needed.
+- `deploy_notify_hook` function removed from `scripts/lib/claude.sh`.
+- `bootstrap_slot` in `scripts/slot-claude` no longer deploys a hook.
+
+### Kept
+- `FLOWSLOT_TWILIO_ACCOUNT_SID` / `_AUTH_TOKEN` / `_FROM` / `_TO` / `_VOICE`
+  variables in `.slotconfig`, `config.example`, and `slot self init` prompts.
+  These are reserved for the upcoming `slot claude voice` subcommand, which
+  will integrate `ZeframLou/call-me` (or a fork) to provide real bi-directional
+  voice conversations with the running Claude session.
+
 ## [2.9.1] - 2026-04-20
 
 ### Changed (Breaking for `slot claude` users)
