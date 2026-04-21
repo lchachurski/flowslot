@@ -23,7 +23,7 @@ Usage: slot claude [options] [prompt...]
 
 Run Claude Code on a slot. By default drops into a persistent tmux session on
 the remote slot so long agentic tasks survive laptop sleep. You'll get a phone
-call (via CallMeBot) when Claude finishes a task or asks a question.
+call (via Twilio) when Claude finishes a task or asks a question.
 
 Subcommands:
   attach            Reattach to the slot's running Claude tmux session.
