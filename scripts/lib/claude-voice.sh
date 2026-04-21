@@ -57,6 +57,8 @@ ensure_call_me_cloned() {
       git checkout --quiet --detach "$pin_sha"
     fi
 
+    # package.json lives in the server/ subdir in this project layout.
+    cd "$dir/server"
     # bun install is idempotent; only reinstalls if lockfile/packages changed.
     bun install --production >/dev/null 2>&1 || bun install >/dev/null
 REMOTE_CLONE
@@ -88,28 +90,55 @@ write_call_me_env() {
 }
 
 # Enable Tailscale Funnel for the local call-me port.
-# This runs `tailscale serve` + `tailscale funnel` on the slot.
-# Returns 0 on success; prints the Funnel URL on stdout.
+# Tailscale >= 1.64 uses a simplified CLI: `tailscale funnel --bg <port>`
+# (previously required a separate `tailscale serve` call). See
+# https://tailscale.com/kb/1242/tailscale-serve.
+#
+# If Funnel is not yet enabled on the tailnet for this node, Tailscale
+# returns a node-specific enable URL in the error message; we surface that
+# URL verbatim to the user so they can one-click it.
 tailscale_funnel_enable() {
   local host="$1"
   local local_port="${2:-$FLOWSLOT_VOICE_LOCAL_PORT}"
-
-  ssh "$host" bash -s "$local_port" << 'REMOTE_FUNNEL_ON'
+  local output
+  # shellcheck disable=SC2029
+  output="$(ssh "$host" bash -s "$local_port" 2>&1 << 'REMOTE_FUNNEL_ON'
     set -e
     port="$1"
-    # Point Tailscale's HTTPS :443 at our local HTTP port.
-    sudo tailscale serve --bg --https=443 --set-path=/ "http://127.0.0.1:${port}" >/dev/null
-    # Open the serve config to the public internet.
-    sudo tailscale funnel --bg 443 on >/dev/null
+    sudo tailscale funnel reset 2>/dev/null || true
+    sudo tailscale serve reset 2>/dev/null || true
+    # --bg detaches; runs in ~3s or errors out immediately with a URL.
+    timeout 20 sudo tailscale funnel --bg "$port"
 REMOTE_FUNNEL_ON
+  )" || true
+
+  if echo "$output" | grep -q "Funnel is not enabled"; then
+    log_error "Tailscale Funnel is not yet enabled for this EC2 node."
+    echo ""
+    echo "Tailscale provided a one-click enable URL specific to this node:"
+    echo ""
+    echo "$output" | grep -oE 'https://login\.tailscale\.com/[^ ]*'
+    echo ""
+    echo "Open it in a browser where you're signed into your Tailscale admin,"
+    echo "click 'Enable', then retry 'slot claude voice enable'."
+    return 1
+  fi
+
+  # If we got here, either success (exit 0) or some other error.
+  if echo "$output" | grep -qi "error"; then
+    log_error "Tailscale Funnel enable failed:"
+    echo "$output"
+    return 1
+  fi
+  return 0
 }
 
-# Disable Tailscale Funnel for 443 on the slot. Idempotent.
+# Disable Tailscale Funnel on the slot. Idempotent.
 tailscale_funnel_disable() {
   local host="$1"
   ssh "$host" bash << 'REMOTE_FUNNEL_OFF' 2>/dev/null || true
-    sudo tailscale funnel --bg 443 off 2>/dev/null || true
-    sudo tailscale serve --https=443 off 2>/dev/null || true
+    sudo tailscale funnel reset 2>/dev/null || true
+    sudo tailscale serve reset 2>/dev/null || true
 REMOTE_FUNNEL_OFF
 }
 
@@ -133,16 +162,15 @@ get_tailscale_fqdn() {
     | jq -r '.Self.DNSName | rtrimstr(".")' 2>/dev/null
 }
 
-# Merge an mcpServers.call-me entry into ~/.claude/settings.json on the slot.
-# The MCP entry runs a bash wrapper that sources the env file, so credentials
-# don't end up inlined into settings.json.
+# Register the call-me MCP server via `claude mcp add` (user scope) so it's
+# available to every Claude session on this slot. The MCP entry points at a
+# bash wrapper that sources the env file and execs bun — this keeps Twilio /
+# OpenAI creds out of Claude Code's own config storage.
 register_mcp_in_settings() {
   local host="$1"
   ssh "$host" bash << 'REMOTE_MCP_ADD'
     set -e
-    settings="$HOME/.claude/settings.json"
-    mkdir -p "$(dirname "$settings")"
-    [ -f "$settings" ] || echo '{}' > "$settings"
+    export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
 
     # Wrapper that sources the env file then execs bun.
     wrapper="$HOME/.flowslot/bin/call-me-mcp"
@@ -155,27 +183,24 @@ set -a
 . "$HOME/.flowslot/call-me.env"
 set +a
 export PATH="$HOME/.bun/bin:$PATH"
-exec bun run "$HOME/.flowslot/call-me/server/src/index.ts"
+cd "$HOME/.flowslot/call-me/server"
+exec bun run src/index.ts
 WRAPPER
     chmod +x "$wrapper"
 
-    tmp="$(mktemp)"
-    jq --arg cmd "$wrapper" '
-      .mcpServers = (.mcpServers // {})
-      | .mcpServers["call-me"] = { command: $cmd, args: [] }
-    ' "$settings" > "$tmp" && mv "$tmp" "$settings"
+    # Remove any stale registration, then add. Use user scope so every
+    # Claude invocation on this slot sees the tool.
+    claude mcp remove --scope user call-me 2>/dev/null || true
+    claude mcp add --scope user --transport stdio call-me "$wrapper"
 REMOTE_MCP_ADD
 }
 
-# Remove the call-me MCP registration from ~/.claude/settings.json.
+# Remove the call-me MCP registration. Idempotent.
 unregister_mcp_in_settings() {
   local host="$1"
   ssh "$host" bash << 'REMOTE_MCP_DEL' 2>/dev/null || true
-    set -e
-    settings="$HOME/.claude/settings.json"
-    [ -f "$settings" ] || exit 0
-    tmp="$(mktemp)"
-    jq 'if .mcpServers then del(.mcpServers["call-me"]) else . end' "$settings" > "$tmp" && mv "$tmp" "$settings"
+    export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
+    claude mcp remove --scope user call-me 2>/dev/null || true
     rm -f "$HOME/.flowslot/bin/call-me-mcp"
 REMOTE_MCP_DEL
 }

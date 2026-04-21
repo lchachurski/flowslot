@@ -93,16 +93,16 @@ case "$ACTION" in
     echo ""
     echo "  Funnel URL:  $PUBLIC_URL"
     echo ""
-    echo "Configure Twilio:"
-    echo "  1. Go to https://console.twilio.com/ → Phone Numbers → Manage → Active"
-    echo "  2. Click your number: ${FLOWSLOT_TWILIO_FROM:-<your From>}"
-    echo "  3. Under Voice Configuration, set 'A Call Comes In' → Webhook →"
-    echo "     URL:    ${PUBLIC_URL}/incoming"
-    echo "     Method: HTTP POST"
-    echo "  4. Save."
+    echo "No Twilio console config is needed — call-me only places outbound calls."
+    echo "The Funnel URL is what Twilio hits during those outbound calls."
     echo ""
-    echo "Then start 'slot claude' on this slot and ask Claude to call you —"
-    echo "Claude now has the 'initiate_call' MCP tool available."
+    echo "Next steps:"
+    echo "  1. slot claude     # (re)attach to Claude on this slot"
+    echo "  2. Ask Claude: 'Please call me and summarize what you did.'"
+    echo "     Claude now has the 'initiate_call' MCP tool and will ring you."
+    echo ""
+    echo "Pick up the call and you can have a real conversation — speak,"
+    echo "Claude hears, Claude responds, loop. Say 'bye' or hang up to end."
     ;;
 
   # -----------------------------------------------------------------------------
@@ -124,7 +124,7 @@ case "$ACTION" in
     ssh "$SLOT_REMOTE_HOST" 'test -f "$HOME/.flowslot/voice-ready"' 2>/dev/null && READY="yes"
 
     FUNNEL_OUT="$(ssh "$SLOT_REMOTE_HOST" 'tailscale funnel status 2>/dev/null' 2>/dev/null | head -20)"
-    MCP_PRESENT="$(ssh "$SLOT_REMOTE_HOST" 'jq -r ".mcpServers[\"call-me\"].command // empty" "$HOME/.claude/settings.json" 2>/dev/null' 2>/dev/null || true)"
+    MCP_PRESENT="$(ssh "$SLOT_REMOTE_HOST" 'PATH=$HOME/.local/bin:$PATH claude mcp list 2>/dev/null | grep -E "^call-me[: ]" | head -1' 2>/dev/null || true)"
     FQDN="$(get_tailscale_fqdn "$SLOT_REMOTE_HOST")"
 
     echo "Voice status for $SLOT_REMOTE_HOST"
