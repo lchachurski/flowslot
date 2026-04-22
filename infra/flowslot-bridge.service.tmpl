@@ -1,0 +1,22 @@
+[Unit]
+Description=flowslot voice bridge (HTTP API for ElevenLabs CAI agent)
+Documentation=https://github.com/lchachurski/flowslot
+After=tailscaled.service
+Wants=tailscaled.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/.flowslot/bridge
+EnvironmentFile=/home/ubuntu/.flowslot/bridge.env
+# Wait for tailscaled to be ready so the Funnel cert/DNS is resolvable.
+ExecStartPre=/bin/bash -c 'for i in {1..30}; do tailscale status >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+ExecStart=/usr/bin/python3 /home/ubuntu/.flowslot/bridge/server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -136,29 +136,25 @@ if [ ! -f "$SOURCE_DIR/flowslot-ports.sh" ]; then
   echo "See: $SCRIPT_DIR/../templates/flowslot-ports.example.sh"
 fi
 
-# Optional: Claude Code / Twilio voice chat setup
+# Optional: Claude Code voice chat via ElevenLabs CAI
 echo ""
-echo "Enable 'slot claude voice' (phone conversations with Claude via Twilio)?"
+echo "Enable 'slot claude voice' (bidirectional phone chat with Claude via ElevenLabs CAI)?"
 read -r -p "Configure now? [y/N] " ENABLE_CLAUDE
-TWILIO_ACCOUNT_SID=""
-TWILIO_AUTH_TOKEN=""
-TWILIO_FROM=""
-TWILIO_TO=""
-OPENAI_API_KEY=""
+EL_API_KEY=""
+EL_AGENT_ID=""
+EL_PHONE_NUMBER_ID=""
+USER_PHONE=""
 SLOT_CLAUDE_DEFAULT_VAL="remote"
 if [[ "$ENABLE_CLAUDE" =~ ^[Yy]$ ]]; then
-  echo "  Twilio Account SID (from console.twilio.com, starts with 'AC'):"
-  read -r -p "  sid: " TWILIO_ACCOUNT_SID
-  echo "  Twilio Auth Token (same page):"
-  read -r -s -p "  token: " TWILIO_AUTH_TOKEN
+  echo "  ElevenLabs API key (from elevenlabs.io → Profile → API keys):"
+  read -r -s -p "  api key: " EL_API_KEY
   echo ""
-  echo "  Twilio phone number (E.164 format, the 'From' — bought in Twilio console):"
-  read -r -p "  from [+15551234567]: " TWILIO_FROM
-  echo "  Your personal phone number (E.164 format, the number that rings):"
-  read -r -p "  to [+46701234567]: " TWILIO_TO
-  echo "  OpenAI API key (for call-me STT/TTS; leave blank to set later):"
-  read -r -s -p "  openai key (optional): " OPENAI_API_KEY
-  echo ""
+  echo "  ElevenLabs Conversational AI agent ID (create an agent first):"
+  read -r -p "  agent id: " EL_AGENT_ID
+  echo "  ElevenLabs phone number ID (from elevenlabs.io → Agents → Phone numbers):"
+  read -r -p "  phone number id: " EL_PHONE_NUMBER_ID
+  echo "  Your personal phone number in E.164 (the one that rings, e.g. +46701234567):"
+  read -r -p "  to: " USER_PHONE
   echo "  Default 'slot claude' target (remote | local):"
   read -r -p "  [remote]: " DEFAULT_INPUT
   SLOT_CLAUDE_DEFAULT_VAL="${DEFAULT_INPUT:-remote}"
@@ -179,13 +175,12 @@ SLOT_AWS_INSTANCE_ID="$AWS_INSTANCE_ID"
 SLOT_AWS_REGION="$AWS_REGION"
 SLOT_COMPOSE_FILES="$COMPOSE_FILES"
 
-# Claude Code integration ('slot claude voice'). Leave any field empty to disable
-# the phone-call feature — it can be configured later via 'slot claude voice enable'.
-FLOWSLOT_TWILIO_ACCOUNT_SID="$TWILIO_ACCOUNT_SID"
-FLOWSLOT_TWILIO_AUTH_TOKEN="$TWILIO_AUTH_TOKEN"
-FLOWSLOT_TWILIO_FROM="$TWILIO_FROM"
-FLOWSLOT_TWILIO_TO="$TWILIO_TO"
-FLOWSLOT_OPENAI_API_KEY="$OPENAI_API_KEY"
+# 'slot claude voice' — bidirectional phone chat via ElevenLabs Conversational AI.
+# Leave any field empty to skip; 'slot claude voice enable' will prompt later.
+FLOWSLOT_ELEVENLABS_API_KEY="$EL_API_KEY"
+FLOWSLOT_ELEVENLABS_AGENT_ID="$EL_AGENT_ID"
+FLOWSLOT_ELEVENLABS_PHONE_NUMBER_ID="$EL_PHONE_NUMBER_ID"
+FLOWSLOT_TWILIO_TO="$USER_PHONE"
 SLOT_CLAUDE_DEFAULT="$SLOT_CLAUDE_DEFAULT_VAL"
 EOF
 

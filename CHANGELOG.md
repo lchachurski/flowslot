@@ -8,6 +8,77 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-04-22
+
+### Added
+- **`slot claude voice` rearchitected around ElevenLabs Conversational AI +
+  a Python bridge service.** Two big capability gains over v2.10:
+  - **Inbound calls** — you call Claude (not just Claude calling you). The
+    ElevenLabs agent picks up and has tools to read Claude's live session:
+    "how's it going?", "what did Claude just say?", "tell Claude to X",
+    "wait until Claude is done and let me know".
+  - **Real barge-in + turn-taking** — ElevenLabs CAI handles this natively,
+    replacing call-me's sequential turn loop.
+- New bridge service on the slot (`~/.flowslot/bridge/`, systemd-managed):
+  Python 3 HTTP server on port 8080, HMAC-authenticated tool webhooks for
+  the CAI agent. Four tools:
+  - `GET /bridge/state` — structured status snapshot (status, current tool,
+    elapsed time, waiting-for-input flag, last Claude preview).
+  - `GET /bridge/output?lines=N` — raw `tmux capture-pane` text for
+    verbatim relay.
+  - `POST /bridge/inject` — send a message into Claude's REPL; optional
+    `urgent=true` interrupts the current tool call first.
+  - `GET /bridge/watch?timeout=N` — long-poll until Claude's next Stop event.
+- New Claude Code hooks (PreToolUse, PostToolUse, Stop, Notification) that
+  append events to `~/.flowslot/bridge.db` (SQLite), powering the <50ms state
+  queries.
+- New `voice-outbound` MCP server (stdio, Python). Gives Claude a `call_user`
+  tool that POSTs ElevenLabs' outbound-call API. After Claude places the call,
+  the ElevenLabs agent takes over with access to the same 4 bridge tools —
+  so outbound calls are also full multi-turn conversations.
+- New subcommands:
+  - `slot claude voice agent-config` — prints the ElevenLabs agent system
+    prompt + the 4 tool-definition JSONs for one-time copy-paste setup.
+  - `slot claude voice test` — places an outbound call directly via the
+    voice-outbound MCP, bypassing Claude, for end-to-end pipeline verification.
+- Config additions in `.slotconfig`:
+  - `FLOWSLOT_ELEVENLABS_API_KEY`
+  - `FLOWSLOT_ELEVENLABS_AGENT_ID`
+  - `FLOWSLOT_ELEVENLABS_PHONE_NUMBER_ID`
+  - `FLOWSLOT_BRIDGE_HMAC_SECRET` (auto-generated on first `voice enable`)
+- `slot self init` now prompts for ElevenLabs credentials instead of Twilio
+  (Twilio is still supported indirectly — ElevenLabs can import a Twilio
+  number — but flowslot no longer talks to Twilio's API directly).
+
+### Changed (Breaking for `slot claude voice` users of v2.10)
+- **call-me integration retired.** `slot claude voice enable` now automatically
+  cleans up any v2.10 call-me artifacts on the slot (`~/.flowslot/call-me/`,
+  `~/.flowslot/call-me.env`, `~/.flowslot/bin/call-me-mcp`, the MCP
+  registration) before installing the v2.11 stack. Existing users can just
+  run `slot claude voice enable` on upgrade and everything transitions.
+- **Claude's outbound tool shape changed.** Instead of call-me's `initiate_call`
+  / `continue_call` / `speak_to_user` / `end_call` (4 tools, sequential
+  turn-taking), Claude now has a single `call_user(message, reason)` MCP
+  tool. The conversation after pickup is driven by the ElevenLabs agent,
+  not Claude's tool calls — simpler for Claude, richer UX for the user.
+- `slot claude voice logs` now tails `journalctl -u flowslot-bridge` over SSH
+  instead of dumping tmux scrollback.
+- `slot claude voice refresh-fork` subcommand removed (no fork to refresh).
+
+### Removed
+- `FLOWSLOT_OPENAI_API_KEY` is no longer needed — ElevenLabs CAI handles
+  STT and TTS. Existing entries in `.slotconfig` are harmless (ignored).
+- `FLOWSLOT_VOICE_PINNED_SHA` is no longer needed — no call-me fork pin.
+- The `lchachurski/call-me` fork stays on GitHub as historical record with
+  the upstream PRs (#35, #36) still open; flowslot no longer references it.
+
+### Prerequisites (one-time)
+- ElevenLabs account, API key, a Conversational AI agent created in their
+  dashboard, and a phone number registered with ElevenLabs.
+- Tailscale Funnel enabled on the tailnet for the EC2 node (same as v2.10).
+- Paste the system prompt + 4 tool configs (printed by
+  `slot claude voice agent-config`) into the ElevenLabs agent settings.
+
 ## [2.10.0] - 2026-04-21
 
 ### Added
