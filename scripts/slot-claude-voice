@@ -1,11 +1,16 @@
 #!/bin/bash
-# `slot claude voice` — two-way voice chat with Claude Code on a slot.
+# `slot claude voice` — v2.11: bidirectional voice control via ElevenLabs CAI + bridge.
 #
-# Architecture: call-me (forked from ZeframLou/call-me) runs as an MCP server
-# launched by Claude Code on the slot; Tailscale Funnel exposes the HTTP
-# webhook endpoint to Twilio over a real HTTPS cert. See
-# /Users/lukasz/.claude/plans/we-need-to-extend-synchronous-pond.md for the
-# full design.
+# Architecture: see /Users/lukasz/.claude/plans/we-need-to-extend-synchronous-pond.md
+#
+# Summary:
+#   - An ElevenLabs Conversational AI agent handles phone calls (inbound + outbound).
+#   - A Python bridge on the slot (systemd, :8080 via Tailscale Funnel) exposes
+#     4 HTTP tools to the CAI agent: get_claude_state, get_claude_last_output,
+#     inject_message, watch_for_stop.
+#   - Claude Code hooks append session events to SQLite so the bridge can answer
+#     "how's it going?" in ~50 ms.
+#   - Claude gets a `call_user` MCP tool (voice-outbound) for Claude-initiated calls.
 
 set -euo pipefail
 
@@ -22,29 +27,31 @@ show_help() {
   cat << EOF
 Usage: slot claude voice <subcommand>
 
-Two-way phone conversations with Claude Code on a slot.
+Bidirectional phone conversations with Claude Code via ElevenLabs CAI.
+You can call Claude ("how's it going?", "what did it say?", "tell it to X"),
+and Claude can call you ("call_user" MCP tool) when a task finishes.
 
 Subcommands:
-  enable        Install call-me on the slot, configure Tailscale Funnel, and
-                register the call-me MCP server. Prints the webhook URL you
-                must paste into your Twilio phone number's Voice configuration.
-  disable       Tear down Funnel, unregister the MCP server. Leaves installed
-                files in place so re-enabling is fast.
-  status        Show current state: MCP registered? Funnel URL? Twilio creds?
-  logs [-f]     Show recent call-me / MCP output. This isn't a systemd service —
-                call-me runs as a child of Claude's MCP-launched subprocess —
-                so logs live in your Claude session. Prints the relevant path.
-  refresh-fork  Pull the pinned SHA on the slot's call-me clone, reinstall deps.
-                Use after bumping FLOWSLOT_CALL_ME_DEFAULT_SHA in source.
+  enable         Install bridge service + Claude hooks + voice-outbound MCP on
+                 the slot; configure Tailscale Funnel. Auto-cleans v2.10 (call-me)
+                 artifacts. Prompts once for ElevenLabs credentials if missing.
+  disable        Stop bridge, remove hooks, unregister MCP, Funnel off.
+                 Keeps the bridge SQLite history for forensics.
+  status         Show systemd state, Funnel URL, hook + MCP registration.
+  logs [-f]      journalctl of flowslot-bridge.service (add -f to follow).
+  agent-config   Print the ElevenLabs CAI agent config — system prompt and the
+                 4 tool definitions, ready to paste into your ElevenLabs dashboard.
+  test           Place an outbound test call via the voice-outbound MCP directly.
 
 Prerequisites (one-time, per tailnet):
-  - Enable Tailscale Funnel on your tailnet:
-    https://login.tailscale.com/admin/acls  — add the "funnel" node attribute
-    to the node-attribute set for the EC2 machine.
+  - Enable Tailscale Funnel for this EC2 node in your tailnet ACL.
+    'voice enable' surfaces the one-click URL if missing.
 
-Prerequisites (per project):
-  - FLOWSLOT_TWILIO_* set in .slotconfig (slot self init prompts for these)
-  - FLOWSLOT_OPENAI_API_KEY — prompted once on first 'voice enable'
+Prerequisites (per project, prompted by 'voice enable' if missing):
+  - FLOWSLOT_ELEVENLABS_API_KEY      — from elevenlabs.io dashboard
+  - FLOWSLOT_ELEVENLABS_AGENT_ID     — the CAI agent you create
+  - FLOWSLOT_ELEVENLABS_PHONE_NUMBER_ID — phone number registered with ElevenLabs
+  - FLOWSLOT_TWILIO_TO               — your phone number (E.164)
 EOF
 }
 
@@ -53,87 +60,105 @@ case "${1:-}" in
 esac
 
 ACTION="$1"; shift || true
-
 [ -n "${SLOT_REMOTE_HOST:-}" ] || die "SLOT_REMOTE_HOST not set (is .slotconfig loaded?)"
 
+_resolve_active_slot() {
+  local name
+  if name="$(detect_slot_name 2>/dev/null)"; then
+    echo "$name"; return 0
+  fi
+  name="$(ssh "$SLOT_REMOTE_HOST" "tmux ls 2>/dev/null | awk -F: '/^claude-/{print \$1; exit}' | sed 's/^claude-//'" 2>/dev/null || true)"
+  [ -n "$name" ] && echo "$name" && return 0
+  return 1
+}
+
 case "$ACTION" in
-  # -----------------------------------------------------------------------------
+  # --------------------------------------------------------------------------
   enable)
-    ensure_twilio_configured || exit 1
-    ensure_openai_key_configured || exit 1
+    ACTIVE_SLOT="$(_resolve_active_slot)" || {
+      log_warn "Could not auto-detect active slot. Will use whatever claude-* tmux session exists at call time."
+      ACTIVE_SLOT=""
+    }
 
-    ensure_bun_installed "$SLOT_REMOTE_HOST"
-    ensure_call_me_cloned "$SLOT_REMOTE_HOST"
+    ensure_elevenlabs_configured || exit 1
 
-    log_info "Configuring Tailscale Funnel on slot..."
-    tailscale_funnel_enable "$SLOT_REMOTE_HOST" "$FLOWSLOT_VOICE_LOCAL_PORT" \
-      || die "Failed to enable Tailscale Funnel. If the slot node doesn't have the 'funnel' attribute, add it at https://login.tailscale.com/admin/acls and retry."
+    log_info "Cleaning up any v2.10 call-me artifacts on slot..."
+    cleanup_v210_artifacts "$SLOT_REMOTE_HOST"
 
-    PUBLIC_URL=""
+    ensure_python3_installed "$SLOT_REMOTE_HOST"
+
+    log_info "Deploying bridge server + hooks..."
+    install_bridge "$SLOT_REMOTE_HOST" "$FLOWSLOT_ROOT"
+
+    log_info "Writing bridge env..."
+    write_bridge_env "$SLOT_REMOTE_HOST" "$ACTIVE_SLOT"
+
+    log_info "Installing systemd unit for bridge..."
+    deploy_bridge_systemd "$SLOT_REMOTE_HOST" "$FLOWSLOT_ROOT"
+
+    log_info "Registering Claude hooks (PreToolUse, PostToolUse, Stop, Notification)..."
+    install_claude_hooks "$SLOT_REMOTE_HOST"
+
+    log_info "Installing voice-outbound MCP on slot..."
+    install_voice_outbound_mcp "$SLOT_REMOTE_HOST" "$FLOWSLOT_ROOT"
+
+    log_info "Configuring Tailscale Funnel..."
+    tailscale_funnel_enable "$SLOT_REMOTE_HOST" "$FLOWSLOT_BRIDGE_LOCAL_PORT" \
+      || die "Failed to enable Tailscale Funnel. See the URL above to enable it on your tailnet."
+
     FQDN="$(get_tailscale_fqdn "$SLOT_REMOTE_HOST")"
-    if [ -n "$FQDN" ]; then
-      PUBLIC_URL="https://${FQDN}"
-    else
-      log_warn "Could not determine Tailscale fqdn via 'tailscale status --json'."
-      log_warn "Falling back to 'tailscale funnel status --json' parsing..."
-      PUBLIC_URL="$(get_tailscale_funnel_url "$SLOT_REMOTE_HOST")"
-    fi
-    [ -n "$PUBLIC_URL" ] || die "Could not determine Funnel URL; Funnel may not be active."
-
-    log_info "Writing call-me env to slot..."
-    write_call_me_env "$SLOT_REMOTE_HOST" "$PUBLIC_URL"
-
-    log_info "Registering call-me MCP in ~/.claude/settings.json on slot..."
-    register_mcp_in_settings "$SLOT_REMOTE_HOST"
+    [ -n "$FQDN" ] || die "Could not determine Tailscale FQDN."
+    FUNNEL_URL="https://${FQDN}"
 
     ssh "$SLOT_REMOTE_HOST" 'date -u +%FT%TZ > "$HOME/.flowslot/voice-ready"'
 
     echo ""
-    success "Voice chat enabled for this slot."
+    success "Voice chat enabled."
     echo ""
-    echo "  Funnel URL:  $PUBLIC_URL"
+    echo "  Active slot:   ${ACTIVE_SLOT:-<auto-detected at call time>}"
+    echo "  Funnel URL:    ${FUNNEL_URL}"
+    echo "  Agent ID:      ${FLOWSLOT_ELEVENLABS_AGENT_ID}"
     echo ""
-    echo "No Twilio console config is needed — call-me only places outbound calls."
-    echo "The Funnel URL is what Twilio hits during those outbound calls."
-    echo ""
-    echo "Next steps:"
-    echo "  1. slot claude     # (re)attach to Claude on this slot"
-    echo "  2. Ask Claude: 'Please call me and summarize what you did.'"
-    echo "     Claude now has the 'initiate_call' MCP tool and will ring you."
-    echo ""
-    echo "Pick up the call and you can have a real conversation — speak,"
-    echo "Claude hears, Claude responds, loop. Say 'bye' or hang up to end."
+    echo "Next: run 'slot claude voice agent-config' to get the system prompt and"
+    echo "      tool JSONs to paste into your ElevenLabs agent."
     ;;
 
-  # -----------------------------------------------------------------------------
+  # --------------------------------------------------------------------------
   disable)
+    log_info "Stopping bridge service..."
+    bridge_service_stop "$SLOT_REMOTE_HOST"
+
+    log_info "Removing Claude hooks..."
+    uninstall_claude_hooks "$SLOT_REMOTE_HOST"
+
+    log_info "Unregistering voice-outbound MCP..."
+    uninstall_voice_outbound_mcp "$SLOT_REMOTE_HOST"
+
     log_info "Disabling Tailscale Funnel..."
     tailscale_funnel_disable "$SLOT_REMOTE_HOST"
 
-    log_info "Unregistering call-me MCP from ~/.claude/settings.json..."
-    unregister_mcp_in_settings "$SLOT_REMOTE_HOST"
-
     ssh "$SLOT_REMOTE_HOST" 'rm -f "$HOME/.flowslot/voice-ready"' 2>/dev/null || true
 
-    success "Voice chat disabled. Installed files preserved under ~/.flowslot/call-me."
+    success "Voice chat disabled. Bridge source and DB preserved under ~/.flowslot/."
     ;;
 
-  # -----------------------------------------------------------------------------
+  # --------------------------------------------------------------------------
   status)
     READY="no"
     ssh "$SLOT_REMOTE_HOST" 'test -f "$HOME/.flowslot/voice-ready"' 2>/dev/null && READY="yes"
-
-    FUNNEL_OUT="$(ssh "$SLOT_REMOTE_HOST" 'tailscale funnel status 2>/dev/null' 2>/dev/null | head -20)"
-    MCP_PRESENT="$(ssh "$SLOT_REMOTE_HOST" 'PATH=$HOME/.local/bin:$PATH claude mcp list 2>/dev/null | grep -E "^call-me[: ]" | head -1' 2>/dev/null || true)"
+    ACTIVE_BRIDGE="no"
+    bridge_service_is_active "$SLOT_REMOTE_HOST" && ACTIVE_BRIDGE="yes"
+    HOOKS_PRESENT="$(ssh "$SLOT_REMOTE_HOST" 'jq -r ".hooks.PreToolUse[0].hooks[0].command // empty" "$HOME/.claude/settings.json" 2>/dev/null' 2>/dev/null || true)"
+    MCP_PRESENT="$(ssh "$SLOT_REMOTE_HOST" 'PATH=$HOME/.local/bin:$PATH claude mcp list 2>/dev/null | grep -E "^voice-outbound[: ]" | head -1' 2>/dev/null || true)"
     FQDN="$(get_tailscale_fqdn "$SLOT_REMOTE_HOST")"
+    FUNNEL_OUT="$(ssh "$SLOT_REMOTE_HOST" 'tailscale funnel status 2>/dev/null' 2>/dev/null | head -20)"
 
     echo "Voice status for $SLOT_REMOTE_HOST"
-    echo "  Bootstrap marker: $READY"
-    echo "  MCP registered:   $([ -n "$MCP_PRESENT" ] && echo yes || echo no)"
-    if [ -n "$FQDN" ]; then
-      echo "  Tailscale fqdn:   $FQDN"
-      echo "  Webhook URL:      https://${FQDN}/incoming"
-    fi
+    echo "  Bootstrap marker:   $READY"
+    echo "  Bridge service:     $ACTIVE_BRIDGE"
+    echo "  Claude hooks:       $([ -n "$HOOKS_PRESENT" ] && echo yes || echo no)"
+    echo "  voice-outbound MCP: $([ -n "$MCP_PRESENT" ] && echo yes || echo no)"
+    [ -n "$FQDN" ] && echo "  Funnel URL:         https://${FQDN}"
     echo ""
     if [ -n "$FUNNEL_OUT" ]; then
       echo "$FUNNEL_OUT"
@@ -142,30 +167,45 @@ case "$ACTION" in
     fi
     ;;
 
-  # -----------------------------------------------------------------------------
+  # --------------------------------------------------------------------------
   logs)
-    # Not a systemd service — call-me logs flow through Claude's tmux session,
-    # which means they're in the tmux scrollback when Claude was running.
-    cat << EOF
-call-me runs as an MCP subprocess of Claude Code. It's not a systemd service,
-so there's no separate log file.
-
-To see its output:
-  1. Reattach to the slot's Claude session: slot claude attach
-  2. Press Ctrl-b [ to enter tmux copy mode, then PgUp to scroll back.
-
-Tailscale Funnel status (what's currently exposed):
-EOF
-    ssh "$SLOT_REMOTE_HOST" 'tailscale funnel status 2>/dev/null' || true
+    FOLLOW=0
+    for arg in "$@"; do
+      case "$arg" in
+        -f|--follow) FOLLOW=1 ;;
+      esac
+    done
+    if [ $FOLLOW -eq 1 ]; then
+      exec ssh -t "$SLOT_REMOTE_HOST" "sudo journalctl -u $FLOWSLOT_BRIDGE_SERVICE -f -n 50"
+    else
+      exec ssh "$SLOT_REMOTE_HOST" "sudo journalctl -u $FLOWSLOT_BRIDGE_SERVICE -n 100 --no-pager"
+    fi
     ;;
 
-  # -----------------------------------------------------------------------------
-  refresh-fork)
-    ensure_call_me_cloned "$SLOT_REMOTE_HOST"
-    success "call-me fork refreshed to $(_voice_pinned_sha | head -c 10) on slot."
+  # --------------------------------------------------------------------------
+  agent-config)
+    FQDN="$(get_tailscale_fqdn "$SLOT_REMOTE_HOST")"
+    [ -n "$FQDN" ] || die "Could not determine Funnel URL; is voice enabled?"
+    [ -n "${FLOWSLOT_BRIDGE_HMAC_SECRET:-}" ] || die "FLOWSLOT_BRIDGE_HMAC_SECRET not set — run 'slot claude voice enable' first."
+    print_agent_config "$FLOWSLOT_ROOT" "https://${FQDN}" "$FLOWSLOT_BRIDGE_HMAC_SECRET"
     ;;
 
-  # -----------------------------------------------------------------------------
+  # --------------------------------------------------------------------------
+  test)
+    log_info "Placing a test outbound call via voice-outbound MCP..."
+    ssh "$SLOT_REMOTE_HOST" bash << 'REMOTE_TEST'
+      set -e
+      printf '%s\n' \
+        '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"flowslot-test","version":"1"}}}' \
+        '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}' \
+        '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"call_user","arguments":{"message":"This is a flowslot voice test. If you hear me, the pipeline works. Hang up when you are ready.","reason":"done"}}}' \
+        | "$HOME/.flowslot/bin/voice-outbound-mcp" 2>/dev/null | tail -3
+REMOTE_TEST
+    echo ""
+    log_info "If the call didn't ring, check 'slot claude voice logs' and 'slot claude voice status'."
+    ;;
+
+  # --------------------------------------------------------------------------
   *)
     log_error "Unknown subcommand: $ACTION"
     echo ""

@@ -1,0 +1,98 @@
+{
+  "_comment": "ElevenLabs Conversational AI — tool configuration. `slot claude voice agent-config` substitutes {{BASE_URL}} with the live Tailscale Funnel URL and reminds the user to add the X-Flowslot-Signature HMAC-SHA256 header (computed per-request by ElevenLabs) using the secret from .slotconfig. All four tools share the same shared secret.",
+  "tools": [
+    {
+      "name": "get_claude_state",
+      "description": "Return a structured snapshot of what Claude is doing right now. Use when the user asks about STATE (how's it going, is Claude stuck, what's Claude working on, is Claude done). Fast call; always prefer over get_claude_last_output when you just need status.",
+      "method": "GET",
+      "url": "{{BASE_URL}}/bridge/state",
+      "headers": {
+        "X-Flowslot-Signature": "{{HMAC_SHA256_HEX(path+body, FLOWSLOT_BRIDGE_HMAC_SECRET)}}"
+      },
+      "response_schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["idle", "executing_tool", "awaiting_input"] },
+          "current_tool": { "type": ["string", "null"] },
+          "tool_args_brief": { "type": ["string", "null"] },
+          "elapsed_seconds": { "type": "integer" },
+          "waiting_for_input": { "type": "boolean" },
+          "last_claude_preview": { "type": ["string", "null"] }
+        }
+      }
+    },
+    {
+      "name": "get_claude_last_output",
+      "description": "Return raw text from Claude's terminal (last N lines). Use ONLY when the user asks to READ or HEAR what Claude actually said word-for-word. Speak the returned text VERBATIM — do not paraphrase, do not summarize. For status summaries, use get_claude_state instead.",
+      "method": "GET",
+      "url": "{{BASE_URL}}/bridge/output",
+      "query": {
+        "lines": {
+          "type": "integer",
+          "default": 50,
+          "description": "Number of terminal lines to capture. 30 for short replies, 100+ for long output."
+        }
+      },
+      "headers": {
+        "X-Flowslot-Signature": "{{HMAC_SHA256_HEX(path+body, FLOWSLOT_BRIDGE_HMAC_SECRET)}}"
+      },
+      "response_schema": {
+        "type": "object",
+        "properties": {
+          "output": { "type": "string" },
+          "session": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "inject_message",
+      "description": "Send a message into Claude's REPL as if the user typed it. Default urgent=false queues the message (Claude picks it up when its current tool finishes). urgent=true sends Escape first to interrupt Claude's current action, then the message. Use urgent only when the user clearly wants to stop Claude's current work.",
+      "method": "POST",
+      "url": "{{BASE_URL}}/bridge/inject",
+      "headers": {
+        "X-Flowslot-Signature": "{{HMAC_SHA256_HEX(path+body, FLOWSLOT_BRIDGE_HMAC_SECRET)}}",
+        "Content-Type": "application/json"
+      },
+      "body_schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "What to type into Claude's REPL." },
+          "urgent": { "type": "boolean", "default": false, "description": "If true, interrupt Claude first (Escape), then send." }
+        },
+        "required": ["text"]
+      },
+      "response_schema": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "mode": { "type": "string", "enum": ["queued", "interrupted_and_sent"] },
+          "claude_state_at_send": { "type": "object" }
+        }
+      }
+    },
+    {
+      "name": "watch_for_stop",
+      "description": "Long-poll: block until Claude's next turn ends (Stop event), or timeout. Use when the user says 'let me know when it's done' or wants to wait on the call until Claude finishes.",
+      "method": "GET",
+      "url": "{{BASE_URL}}/bridge/watch",
+      "query": {
+        "timeout": {
+          "type": "integer",
+          "default": 60,
+          "description": "Seconds to wait before giving up (1-300)."
+        }
+      },
+      "headers": {
+        "X-Flowslot-Signature": "{{HMAC_SHA256_HEX(path+body, FLOWSLOT_BRIDGE_HMAC_SECRET)}}"
+      },
+      "response_schema": {
+        "type": "object",
+        "properties": {
+          "stopped": { "type": "boolean" },
+          "stop_ts": { "type": ["integer", "null"] },
+          "last_claude_preview": { "type": ["string", "null"] }
+        }
+      }
+    }
+  ]
+}

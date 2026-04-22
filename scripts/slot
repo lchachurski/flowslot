@@ -35,13 +35,16 @@ SLOT OPERATIONS:
   compose [name]    Proxy docker compose commands to remote slot
 
 AI:
-  claude [prompt]       Run Claude Code on a slot (interactive tmux by default)
-  claude --headless <p> Run Claude headlessly on the slot
-  claude --local        Run Claude locally instead of on the slot
-  claude attach         Reattach to a slot's running Claude tmux session
-  claude voice enable   Start voice chat (phone conversations with Claude)
-  claude voice disable  Stop voice chat
-  claude voice status   Show voice chat state
+  claude [prompt]           Run Claude Code on a slot (interactive tmux by default)
+  claude --headless <p>     Run Claude headlessly on the slot
+  claude --local            Run Claude locally instead of on the slot
+  claude attach             Reattach to a slot's running Claude tmux session
+  claude voice enable       Set up bidirectional phone chat via ElevenLabs CAI
+  claude voice disable      Tear down voice chat
+  claude voice status       Show voice chat state (bridge, hooks, MCP, Funnel)
+  claude voice agent-config Print ElevenLabs agent config (prompt + tools) to paste
+  claude voice logs [-f]    Follow the voice bridge systemd log
+  claude voice test         Place a test outbound call (bypasses Claude)
 
 DESKTOP:
   desktop up        Launch desktop layout (one Space per running slot)

@@ -34,34 +34,35 @@ export TS_SPLIT_DOMAIN="flowslot.cc"
 export AWS_KEY_NAME="flowslot-dev"
 
 # =============================================================================
-# OPTIONAL: `slot claude voice` — two-way phone conversations with Claude Code
-# on a slot, via Twilio Voice + OpenAI STT/TTS + a forked copy of
-# ZeframLou/call-me (MCP server) running on the slot. The webhook endpoint
-# is exposed to Twilio through Tailscale Funnel, so no EC2 security-group
-# changes or public IP are needed.
+# OPTIONAL: `slot claude voice` — bidirectional phone conversations with Claude
+# Code on a slot, via ElevenLabs Conversational AI.
 #
-# Per-project values are written to .slotconfig by `slot self init`.
+# Architecture: a Python bridge on the slot (systemd) exposes 4 HTTP tools
+# (get_claude_state, get_claude_last_output, inject_message, watch_for_stop)
+# reached through Tailscale Funnel. The ElevenLabs CAI agent uses those tools
+# to read Claude's session state and relay messages. Claude also gets a
+# `call_user` MCP tool (voice-outbound) that dials via ElevenLabs.
 #
-# FLOWSLOT_TWILIO_ACCOUNT_SID  Your Twilio Account SID (starts with "AC…"),
-#                              from https://console.twilio.com/.
-# FLOWSLOT_TWILIO_AUTH_TOKEN   Your Twilio Auth Token (same page).
-# FLOWSLOT_TWILIO_FROM         Your Twilio phone number in E.164 (e.g. +15551234567).
-#                              Trial accounts get one free; Console → Phone Numbers.
-# FLOWSLOT_TWILIO_TO           Your personal phone number in E.164 (the one that rings).
-#                              Trial accounts must verify this number first (Console →
-#                              Phone Numbers → Verified Caller IDs).
-# FLOWSLOT_OPENAI_API_KEY      Your OpenAI API key; required for call-me's
-#                              speech-to-text (Whisper) and text-to-speech.
-#                              Get one at https://platform.openai.com/api-keys.
-# FLOWSLOT_VOICE_PINNED_SHA    Optional: override the commit SHA of
-#                              lchachurski/call-me that flowslot pins.
-# SLOT_CLAUDE_DEFAULT          remote (default) or local — flip `slot claude` default.
+# Per-project values are written to .slotconfig by `slot self init` or the
+# first run of `slot claude voice enable`.
+#
+# FLOWSLOT_ELEVENLABS_API_KEY        Your ElevenLabs API key (Profile → API keys).
+# FLOWSLOT_ELEVENLABS_AGENT_ID       ID of the Conversational AI agent you created
+#                                    in the ElevenLabs dashboard.
+# FLOWSLOT_ELEVENLABS_PHONE_NUMBER_ID Phone number ID registered with ElevenLabs
+#                                    (their own or a Twilio number imported).
+# FLOWSLOT_TWILIO_TO                 Your personal phone number in E.164
+#                                    (the one that rings).
+# FLOWSLOT_BRIDGE_HMAC_SECRET        Auto-generated on first 'voice enable'.
+#                                    Used to sign tool webhooks from CAI to the
+#                                    bridge. Header: X-Flowslot-Signature.
+# SLOT_CLAUDE_DEFAULT                remote (default) or local — flip `slot claude`.
 #
 # One-time: enable Tailscale Funnel for the EC2 machine in your tailnet ACL
-# (https://login.tailscale.com/admin/acls), otherwise 'slot claude voice enable'
-# will fail with a clear error.
+# (https://login.tailscale.com/admin/acls). 'voice enable' prints a one-click
+# URL if it's not yet enabled.
 #
-# Cost: ~$1/mo for a Twilio number, ~$0.013/call minute + OpenAI per-token.
-# Tailscale Funnel is free on Personal and Starter plans.
+# Cost: ElevenLabs CAI ~$0.10/minute conversational; Tailscale Funnel free on
+# Personal and Starter plans.
 # =============================================================================
 
