@@ -52,9 +52,17 @@ def verify_hmac(path: str, body: bytes, signature: str | None) -> bool:
         return False
     payload = path.encode() + body
     expected = hmac.new(SECRET, payload, hashlib.sha256).hexdigest()
-    # Accept with or without "sha256=" prefix (ElevenLabs may use either)
     provided = signature.lower().removeprefix("sha256=")
     return hmac.compare_digest(expected, provided)
+
+
+def verify_static_token(token: str | None) -> bool:
+    """Verify a static bearer token (X-Flowslot-Token header) against the shared secret.
+    Used by ElevenLabs CAI whose tool config supports static request headers but not
+    per-request HMAC signing."""
+    if not token:
+        return False
+    return hmac.compare_digest(SECRET.decode(), token.strip().removeprefix("Bearer ").strip())
 
 
 # --- SQLite helpers ---
@@ -240,8 +248,14 @@ class Handler(BaseHTTPRequestHandler):
         return self.rfile.read(length) if length > 0 else b""
 
     def _signature_ok(self, body: bytes) -> bool:
+        # Accept either HMAC signature OR a static bearer token — ElevenLabs
+        # CAI's dashboard supports static headers cleanly but not HMAC signing.
         sig = self.headers.get("X-Flowslot-Signature") or self.headers.get("x-flowslot-signature")
-        return verify_hmac(self.path, body, sig)
+        if sig and verify_hmac(self.path, body, sig):
+            return True
+        token = (self.headers.get("X-Flowslot-Token") or self.headers.get("x-flowslot-token")
+                 or self.headers.get("Authorization"))
+        return verify_static_token(token)
 
     def _reply(self, status: int, payload: dict | str):
         if isinstance(payload, str):
@@ -256,6 +270,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(data)
+        log(f"[bridge] {self.command} {self.path} -> {status} ({len(data)}B)")
 
     def _unauthorized(self):
         self._reply(401, {"error": "invalid signature"})

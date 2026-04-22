@@ -9,7 +9,9 @@
 #   - ElevenLabs CAI: the user configures an agent in their dashboard with 4 tools
 #     that webhook to the bridge's Tailscale Funnel URL.
 
-readonly FLOWSLOT_BRIDGE_LOCAL_PORT=8080
+# Bridge binds locally on this port; Tailscale Funnel :443 forwards here.
+# 9090 chosen to avoid clashes with common app ports (8080, 3000, 5000).
+readonly FLOWSLOT_BRIDGE_LOCAL_PORT=9090
 readonly FLOWSLOT_BRIDGE_SERVICE='flowslot-bridge.service'
 
 # ============================================================================
@@ -155,14 +157,22 @@ _prompt_and_save_var() {
 # Bridge install / teardown
 # ============================================================================
 
-ensure_python3_installed() {
+ensure_bridge_deps_installed() {
   local host="$1"
-  if ssh "$host" 'command -v python3 >/dev/null 2>&1' 2>/dev/null; then
+  local missing=()
+  ssh "$host" 'command -v python3 >/dev/null 2>&1' 2>/dev/null || missing+=(python3 python3-minimal)
+  ssh "$host" 'command -v sqlite3 >/dev/null 2>&1' 2>/dev/null || missing+=(sqlite3)
+  ssh "$host" 'command -v jq      >/dev/null 2>&1' 2>/dev/null || missing+=(jq)
+  if [ ${#missing[@]} -eq 0 ]; then
     return 0
   fi
-  log_info "Installing python3 on slot..."
-  ssh "$host" 'sudo apt-get update -qq && sudo apt-get install -y python3 python3-minimal >/dev/null'
+  log_info "Installing bridge deps on slot: ${missing[*]}"
+  # shellcheck disable=SC2029
+  ssh "$host" "sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ${missing[*]} >/dev/null"
 }
+
+# Back-compat alias — old callers.
+ensure_python3_installed() { ensure_bridge_deps_installed "$@"; }
 
 install_bridge() {
   local host="$1"
@@ -203,7 +213,9 @@ deploy_bridge_systemd() {
     sudo install -m 0644 "$staged" "$target"
     rm -f "$staged"
     sudo systemctl daemon-reload
-    sudo systemctl enable --now "$unit"
+    sudo systemctl enable "$unit"
+    # Always restart to pick up any env-file changes on re-enable.
+    sudo systemctl restart "$unit"
 REMOTE_SVC
 }
 
@@ -321,6 +333,13 @@ cleanup_v210_artifacts() {
   ssh "$host" bash << 'REMOTE_CLEAN' 2>/dev/null || true
     set +e
     export PATH="$HOME/.local/bin:$PATH"
+    # Kill any lingering call-me/bun process launched from earlier Claude sessions.
+    # The process runs as `bun run src/index.ts` from the call-me/server cwd, so
+    # match on parent-dir instead of command string: walk /proc and kill matches.
+    for pid in $(pgrep -x bun 2>/dev/null); do
+      cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null)" || continue
+      case "$cwd" in *.flowslot/call-me*) kill "$pid" 2>/dev/null ;; esac
+    done
     claude mcp remove --scope user call-me 2>/dev/null
     rm -f  "$HOME/.flowslot/bin/call-me-mcp"
     rm -f  "$HOME/.flowslot/call-me.env"
