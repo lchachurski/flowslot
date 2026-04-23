@@ -224,9 +224,26 @@ def tmux_inject(text: str, urgent: bool = False) -> dict:
             capture_output=True,
         )
         time.sleep(0.25)
-    # Send text + Enter as a single send-keys call so Enter isn't swallowed.
+    # Claude Code's REPL uses bracketed-paste handling — if text and Enter are
+    # sent in the same send-keys invocation, the Enter gets consumed as a
+    # newline INSIDE the input buffer instead of submitting. We have to:
+    #   1. send the text (via paste-buffer to preserve any special chars)
+    #   2. pause briefly so the REPL finishes the paste
+    #   3. send Enter as its own keystroke so it registers as submit
+    import tempfile, os as _os
+    tmp_fd, tmp_path = tempfile.mkstemp(prefix="flowslot-inject-", suffix=".txt")
+    try:
+        with _os.fdopen(tmp_fd, "w") as f:
+            f.write(text)
+        buf_name = f"flowslot-inject-{int(time.time()*1000)}"
+        subprocess.run(["tmux", "load-buffer", "-b", buf_name, tmp_path], capture_output=True)
+        subprocess.run(["tmux", "paste-buffer", "-b", buf_name, "-d", "-t", TMUX_SESSION], capture_output=True)
+    finally:
+        try: _os.unlink(tmp_path)
+        except Exception: pass
+    time.sleep(0.4)
     subprocess.run(
-        ["tmux", "send-keys", "-t", TMUX_SESSION, text, "Enter"],
+        ["tmux", "send-keys", "-t", TMUX_SESSION, "Enter"],
         capture_output=True,
     )
     return {
