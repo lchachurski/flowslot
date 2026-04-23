@@ -34,6 +34,20 @@ export TS_SPLIT_DOMAIN="flowslot.cc"
 export AWS_KEY_NAME="flowslot-dev"
 
 # =============================================================================
+# OPTIONAL: `slot create` sets up a real git origin on each slot so Claude Code
+# (running on the slot) can commit and push. Requires a GitHub token.
+#
+# FLOWSLOT_GITHUB_TOKEN    Fine-grained GitHub Personal Access Token with
+#                          `Contents: Read and write` on the target repo only.
+#                          Create at https://github.com/settings/personal-access-tokens/new
+#                          Store per-project in .slotconfig (slot self init prompts for it).
+#                          The EC2 stores the token in ~/.git-credentials (0600)
+#                          via the `store` credential helper; any slot inherits it.
+# FLOWSLOT_GIT_USER_NAME   Commit author name on slots (default: flowslot-bot).
+# FLOWSLOT_GIT_USER_EMAIL  Commit author email (default: flowslot-bot@flowslot.cc).
+# =============================================================================
+
+# =============================================================================
 # OPTIONAL: `slot claude voice` — bidirectional phone conversations with Claude
 # Code on a slot, via ElevenLabs Conversational AI.
 #
