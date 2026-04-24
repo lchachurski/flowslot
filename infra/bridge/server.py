@@ -58,7 +58,7 @@ def verify_hmac(path: str, body: bytes, signature: str | None) -> bool:
 
 def verify_static_token(token: str | None) -> bool:
     """Verify a static bearer token (X-Flowslot-Token header) against the shared
-    secret. ElevenLabs CAI's tool config supports static request headers cleanly
+    secret. ElevenLabs CAI's dashboard supports static request headers cleanly
     but doesn't offer per-request HMAC signing."""
     if not token:
         return False
@@ -211,9 +211,19 @@ def _last_claude_preview(max_chars: int = 240) -> str | None:
 
 
 def tmux_inject(text: str, urgent: bool = False) -> dict:
-    """Send a message into the Claude tmux REPL.
+    """Send a message into the Claude tmux REPL and actually submit it.
 
-    urgent=True first sends Escape (interrupts current prompt / tool) before the message.
+    Claude Code's REPL uses bracketed-paste. If text and Enter are sent in one
+    `tmux send-keys` call, Enter is consumed as a newline INSIDE the paste
+    block — the message appears in the input buffer but never submits. We use
+    a 3-phase sequence:
+      1. Write the text to a temp file and tmux load-buffer + paste-buffer.
+         The -d flag deletes the buffer after paste. This ensures any embedded
+         newlines and long text land atomically without send-keys quoting hell.
+      2. Wait long enough for the REPL to finish accepting the paste
+         (400 ms is insufficient for >80-char payloads; 900 ms is reliable).
+      3. Send Enter as a completely separate send-keys call, so it lands
+         OUTSIDE the bracketed-paste block as a real submit keystroke.
     """
     if not _tmux_has_session():
         return {"ok": False, "error": f"no tmux session '{TMUX_SESSION}'"}
@@ -223,25 +233,29 @@ def tmux_inject(text: str, urgent: bool = False) -> dict:
             ["tmux", "send-keys", "-t", TMUX_SESSION, "Escape"],
             capture_output=True,
         )
-        time.sleep(0.25)
-    # Claude Code's REPL uses bracketed-paste handling — if text and Enter are
-    # sent in the same send-keys invocation, the Enter gets consumed as a
-    # newline INSIDE the input buffer instead of submitting. We have to:
-    #   1. send the text (via paste-buffer to preserve any special chars)
-    #   2. pause briefly so the REPL finishes the paste
-    #   3. send Enter as its own keystroke so it registers as submit
+        time.sleep(0.35)
+
     import tempfile, os as _os
     tmp_fd, tmp_path = tempfile.mkstemp(prefix="flowslot-inject-", suffix=".txt")
     try:
         with _os.fdopen(tmp_fd, "w") as f:
             f.write(text)
         buf_name = f"flowslot-inject-{int(time.time()*1000)}"
-        subprocess.run(["tmux", "load-buffer", "-b", buf_name, tmp_path], capture_output=True)
-        subprocess.run(["tmux", "paste-buffer", "-b", buf_name, "-d", "-t", TMUX_SESSION], capture_output=True)
+        subprocess.run(
+            ["tmux", "load-buffer", "-b", buf_name, tmp_path], capture_output=True
+        )
+        subprocess.run(
+            ["tmux", "paste-buffer", "-d", "-b", buf_name, "-t", TMUX_SESSION],
+            capture_output=True,
+        )
     finally:
         try: _os.unlink(tmp_path)
         except Exception: pass
-    time.sleep(0.4)
+
+    # Claude Code's REPL needs the bracketed-paste terminator AND the paste
+    # state machine to settle before Enter will be treated as submit. 0.9s is
+    # reliable for payloads up to a few KB; earlier 0.4s was insufficient.
+    time.sleep(0.9)
     subprocess.run(
         ["tmux", "send-keys", "-t", TMUX_SESSION, "Enter"],
         capture_output=True,
@@ -265,8 +279,8 @@ class Handler(BaseHTTPRequestHandler):
         return self.rfile.read(length) if length > 0 else b""
 
     def _signature_ok(self, body: bytes) -> bool:
-        # Accept either HMAC signature OR a static bearer token — ElevenLabs
-        # CAI's dashboard supports static headers cleanly but not HMAC signing.
+        # Accept either HMAC signature OR a static bearer token. ElevenLabs CAI
+        # can send static headers from its dashboard but can't sign HMACs.
         sig = self.headers.get("X-Flowslot-Signature") or self.headers.get("x-flowslot-signature")
         if sig and verify_hmac(self.path, body, sig):
             return True
