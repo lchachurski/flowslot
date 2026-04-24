@@ -57,9 +57,9 @@ def verify_hmac(path: str, body: bytes, signature: str | None) -> bool:
 
 
 def verify_static_token(token: str | None) -> bool:
-    """Verify a static bearer token (X-Flowslot-Token header) against the shared secret.
-    Used by ElevenLabs CAI whose tool config supports static request headers but not
-    per-request HMAC signing."""
+    """Verify a static bearer token (X-Flowslot-Token header) against the shared
+    secret. ElevenLabs CAI's tool config supports static request headers cleanly
+    but doesn't offer per-request HMAC signing."""
     if not token:
         return False
     return hmac.compare_digest(SECRET.decode(), token.strip().removeprefix("Bearer ").strip())
