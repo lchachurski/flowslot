@@ -183,6 +183,7 @@ install_bridge() {
   rsync -az \
     "$flowslot_root/infra/bridge/server.py" \
     "$flowslot_root/infra/bridge/schema.sql" \
+    "$flowslot_root/infra/bridge/events-tail.sh" \
     "$host:.flowslot/bridge/"
   rsync -az "$flowslot_root/infra/bridge/hooks/" "$host:.flowslot/bridge/hooks/"
 
@@ -193,7 +194,21 @@ install_bridge() {
     sqlite3 "$db" < "$HOME/.flowslot/bridge/schema.sql" 2>/dev/null || true
     chmod +x "$HOME/.flowslot/bridge/hooks/"*.sh "$HOME/.flowslot/bridge/hooks/"*.py 2>/dev/null || true
     chmod +x "$HOME/.flowslot/bridge/server.py" 2>/dev/null || true
+    chmod +x "$HOME/.flowslot/bridge/events-tail.sh" 2>/dev/null || true
 REMOTE_DB_INIT
+}
+
+# Lazily deploy events-tail.sh for `voice watch` callers whose bridge was
+# installed before this helper existed. Idempotent.
+ensure_events_tail_installed() {
+  local host="$1"
+  local flowslot_root="$2"
+  if ssh "$host" 'test -x "$HOME/.flowslot/bridge/events-tail.sh"' 2>/dev/null; then
+    return 0
+  fi
+  ssh "$host" 'mkdir -p "$HOME/.flowslot/bridge"' 2>/dev/null
+  rsync -az "$flowslot_root/infra/bridge/events-tail.sh" "$host:.flowslot/bridge/events-tail.sh"
+  ssh "$host" 'chmod +x "$HOME/.flowslot/bridge/events-tail.sh"' 2>/dev/null
 }
 
 deploy_bridge_systemd() {
