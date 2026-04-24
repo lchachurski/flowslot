@@ -136,6 +136,20 @@ if [ ! -f "$SOURCE_DIR/flowslot-ports.sh" ]; then
   echo "See: $SCRIPT_DIR/../templates/flowslot-ports.example.sh"
 fi
 
+# Optional: GitHub token so slots can `git push` (Claude commits from the slot)
+echo ""
+echo "Allow slots to git push? (Claude Code committing from a slot needs a token.)"
+echo "Create one at https://github.com/settings/personal-access-tokens/new"
+echo "  - Scope to THIS repo only"
+echo "  - Permissions: Contents = Read and write"
+echo "  - Set 90-day expiry; rotate when it expires"
+read -r -p "Configure now? [y/N] " ENABLE_PUSH
+GH_TOKEN=""
+if [[ "$ENABLE_PUSH" =~ ^[Yy]$ ]]; then
+  read -r -s -p "  GitHub PAT (starts with github_pat_): " GH_TOKEN
+  echo ""
+fi
+
 # Optional: Claude Code voice chat via ElevenLabs CAI
 echo ""
 echo "Enable 'slot claude voice' (bidirectional phone chat with Claude via ElevenLabs CAI)?"
@@ -174,6 +188,11 @@ SLOT_REMOTE_BASE="$REMOTE_BASE"
 SLOT_AWS_INSTANCE_ID="$AWS_INSTANCE_ID"
 SLOT_AWS_REGION="$AWS_REGION"
 SLOT_COMPOSE_FILES="$COMPOSE_FILES"
+
+# Fine-grained GitHub PAT scoped to this repo (contents: read/write).
+# Used by slot-create so each slot has a real git origin and can push.
+# Leave empty to create slots without push credentials.
+FLOWSLOT_GITHUB_TOKEN="$GH_TOKEN"
 
 # 'slot claude voice' — bidirectional phone chat via ElevenLabs Conversational AI.
 # Leave any field empty to skip; 'slot claude voice enable' will prompt later.
