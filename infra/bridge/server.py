@@ -115,6 +115,9 @@ def state_from_db() -> dict:
     elapsed = 0
 
     # Is Claude currently in a tool call? pre_tool without a later post_tool/stop.
+    # This takes priority over `awaiting_input` — if a tool is running, we are
+    # NOT idle and NOT awaiting-input, regardless of any stale Notification event.
+    executing_tool = False
     if last_pre_tool is not None:
         pre_id = last_pre_tool["id"]
         with db_connect() as conn:
@@ -123,16 +126,24 @@ def state_from_db() -> dict:
                 (pre_id,),
             ).fetchone()
         if post_after is None:
+            executing_tool = True
             status = "executing_tool"
             current_tool = last_pre_tool["tool"]
             tool_args_brief = _brief(last_pre_tool["args"])
             elapsed = now - last_pre_tool["ts"]
 
-    # Waiting for input? last notification after last stop.
+    # Waiting for input? last notification after last stop — but only if no
+    # tool is currently running. Otherwise a stale Notification from an earlier
+    # pause would mask an in-flight tool call.
     waiting = False
-    if last_notification is not None:
+    if not executing_tool and last_notification is not None:
         stop_ts = last_stop["ts"] if last_stop else 0
-        if last_notification["ts"] > stop_ts:
+        # Also require that the notification is newer than any subsequent
+        # pre_tool (which would mean Claude resumed working since the notif).
+        last_activity_ts = stop_ts
+        if last_pre_tool is not None and last_pre_tool["ts"] > last_activity_ts:
+            last_activity_ts = last_pre_tool["ts"]
+        if last_notification["ts"] > last_activity_ts:
             waiting = True
             status = "awaiting_input"
 
