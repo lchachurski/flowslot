@@ -39,6 +39,9 @@ Subcommands:
                  Keeps the bridge SQLite history for forensics.
   status         Show systemd state, Funnel URL, hook + MCP registration.
   logs [-f]      journalctl of flowslot-bridge.service (add -f to follow).
+  watch          Open a local 3-pane tmux dashboard streaming: live Claude
+                 session (read-only), bridge HTTP log, and hook events. Ideal
+                 while on a call so you can see what the agent + Claude are doing.
   agent-config   Print the ElevenLabs CAI agent config — system prompt and the
                  4 tool definitions, ready to paste into your ElevenLabs dashboard.
   test           Place an outbound test call via the voice-outbound MCP directly.
@@ -188,6 +191,55 @@ case "$ACTION" in
     [ -n "$FQDN" ] || die "Could not determine Funnel URL; is voice enabled?"
     [ -n "${FLOWSLOT_BRIDGE_HMAC_SECRET:-}" ] || die "FLOWSLOT_BRIDGE_HMAC_SECRET not set — run 'slot claude voice enable' first."
     print_agent_config "$FLOWSLOT_ROOT" "https://${FQDN}" "$FLOWSLOT_BRIDGE_HMAC_SECRET"
+    ;;
+
+  # --------------------------------------------------------------------------
+  # Local 3-pane live dashboard over SSH. Read-only — does not disturb the
+  # running Claude session. Use while on a call to verify what the CAI agent is
+  # sending / what Claude is doing / what hooks are firing.
+  watch)
+    require_cmd tmux
+    ACTIVE_SLOT="$(_resolve_active_slot)" || die "Could not auto-detect active slot. Use --slot NAME."
+    REMOTE_TMUX_SESSION="claude-${ACTIVE_SLOT}"
+
+    # Sanity: remote tmux session must exist for attach -r to work.
+    if ! ssh "$SLOT_REMOTE_HOST" "tmux has-session -t '$REMOTE_TMUX_SESSION' 2>/dev/null"; then
+      die "No remote tmux session '$REMOTE_TMUX_SESSION' on the slot. Start Claude first: slot claude"
+    fi
+
+    # Make sure events-tail.sh is deployed (supports slots enabled before watch shipped).
+    ensure_events_tail_installed "$SLOT_REMOTE_HOST" "$FLOWSLOT_ROOT"
+
+    LOCAL_SESSION="flowslot-watch-${ACTIVE_SLOT}"
+    if tmux has-session -t "$LOCAL_SESSION" 2>/dev/null; then
+      log_info "Re-attaching to existing local watch session '$LOCAL_SESSION'..."
+      exec tmux attach -t "$LOCAL_SESSION"
+    fi
+
+    # Build the three remote commands. `ssh -tt` forces TTY allocation so
+    # journalctl + tmux attach render ANSI correctly inside the panes.
+    SSH_OPTS="-tt -o ServerAliveInterval=30 -o ServerAliveCountMax=4"
+    CMD_CLAUDE="ssh $SSH_OPTS $SLOT_REMOTE_HOST 'tmux attach -r -t $REMOTE_TMUX_SESSION'"
+    CMD_BRIDGE="ssh $SSH_OPTS $SLOT_REMOTE_HOST 'sudo journalctl -u $FLOWSLOT_BRIDGE_SERVICE -f -n 30 --no-pager'"
+    CMD_EVENTS="ssh $SSH_OPTS $SLOT_REMOTE_HOST '\$HOME/.flowslot/bridge/events-tail.sh'"
+
+    log_info "Opening watch dashboard for slot '$ACTIVE_SLOT'..."
+    log_info "  top pane:    live Claude REPL (read-only)"
+    log_info "  middle pane: bridge HTTP log (CAI tool webhooks)"
+    log_info "  bottom pane: Claude hook events (pre_tool / post_tool / stop / notification)"
+    log_info "  Detach with Ctrl-b d.  Kill with: tmux kill-session -t $LOCAL_SESSION"
+    sleep 1
+
+    # Top pane: Claude REPL (read-only attach)
+    tmux new-session -d -s "$LOCAL_SESSION" -n dashboard "$CMD_CLAUDE"
+    # Split off a middle pane for bridge HTTP log (take 40% of remaining)
+    tmux split-window -v -p 40 -t "$LOCAL_SESSION:0" "$CMD_BRIDGE"
+    # Split the middle pane into middle + bottom (50/50 of the 40%)
+    tmux split-window -v -p 50 -t "$LOCAL_SESSION:0.1" "$CMD_EVENTS"
+    # Focus the top pane (Claude) by default
+    tmux select-pane -t "$LOCAL_SESSION:0.0"
+
+    exec tmux attach -t "$LOCAL_SESSION"
     ;;
 
   # --------------------------------------------------------------------------

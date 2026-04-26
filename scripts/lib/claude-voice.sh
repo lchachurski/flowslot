@@ -9,7 +9,9 @@
 #   - ElevenLabs CAI: the user configures an agent in their dashboard with 4 tools
 #     that webhook to the bridge's Tailscale Funnel URL.
 
-readonly FLOWSLOT_BRIDGE_LOCAL_PORT=8080
+# Bridge binds locally on this port; Tailscale Funnel :443 forwards here.
+# 9090 chosen to avoid clashes with common app ports (8080, 3000, 5000).
+readonly FLOWSLOT_BRIDGE_LOCAL_PORT=9090
 readonly FLOWSLOT_BRIDGE_SERVICE='flowslot-bridge.service'
 
 # ============================================================================
@@ -155,14 +157,22 @@ _prompt_and_save_var() {
 # Bridge install / teardown
 # ============================================================================
 
-ensure_python3_installed() {
+ensure_bridge_deps_installed() {
   local host="$1"
-  if ssh "$host" 'command -v python3 >/dev/null 2>&1' 2>/dev/null; then
+  local missing=()
+  ssh "$host" 'command -v python3 >/dev/null 2>&1' 2>/dev/null || missing+=(python3 python3-minimal)
+  ssh "$host" 'command -v sqlite3 >/dev/null 2>&1' 2>/dev/null || missing+=(sqlite3)
+  ssh "$host" 'command -v jq      >/dev/null 2>&1' 2>/dev/null || missing+=(jq)
+  if [ ${#missing[@]} -eq 0 ]; then
     return 0
   fi
-  log_info "Installing python3 on slot..."
-  ssh "$host" 'sudo apt-get update -qq && sudo apt-get install -y python3 python3-minimal >/dev/null'
+  log_info "Installing bridge deps on slot: ${missing[*]}"
+  # shellcheck disable=SC2029
+  ssh "$host" "sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ${missing[*]} >/dev/null"
 }
+
+# Back-compat alias — old callers.
+ensure_python3_installed() { ensure_bridge_deps_installed "$@"; }
 
 install_bridge() {
   local host="$1"
@@ -173,6 +183,7 @@ install_bridge() {
   rsync -az \
     "$flowslot_root/infra/bridge/server.py" \
     "$flowslot_root/infra/bridge/schema.sql" \
+    "$flowslot_root/infra/bridge/events-tail.sh" \
     "$host:.flowslot/bridge/"
   rsync -az "$flowslot_root/infra/bridge/hooks/" "$host:.flowslot/bridge/hooks/"
 
@@ -183,7 +194,21 @@ install_bridge() {
     sqlite3 "$db" < "$HOME/.flowslot/bridge/schema.sql" 2>/dev/null || true
     chmod +x "$HOME/.flowslot/bridge/hooks/"*.sh "$HOME/.flowslot/bridge/hooks/"*.py 2>/dev/null || true
     chmod +x "$HOME/.flowslot/bridge/server.py" 2>/dev/null || true
+    chmod +x "$HOME/.flowslot/bridge/events-tail.sh" 2>/dev/null || true
 REMOTE_DB_INIT
+}
+
+# Lazily deploy events-tail.sh for `voice watch` callers whose bridge was
+# installed before this helper existed. Idempotent.
+ensure_events_tail_installed() {
+  local host="$1"
+  local flowslot_root="$2"
+  if ssh "$host" 'test -x "$HOME/.flowslot/bridge/events-tail.sh"' 2>/dev/null; then
+    return 0
+  fi
+  ssh "$host" 'mkdir -p "$HOME/.flowslot/bridge"' 2>/dev/null
+  rsync -az "$flowslot_root/infra/bridge/events-tail.sh" "$host:.flowslot/bridge/events-tail.sh"
+  ssh "$host" 'chmod +x "$HOME/.flowslot/bridge/events-tail.sh"' 2>/dev/null
 }
 
 deploy_bridge_systemd() {
@@ -203,7 +228,9 @@ deploy_bridge_systemd() {
     sudo install -m 0644 "$staged" "$target"
     rm -f "$staged"
     sudo systemctl daemon-reload
-    sudo systemctl enable --now "$unit"
+    sudo systemctl enable "$unit"
+    # Always restart to pick up any env-file changes on re-enable.
+    sudo systemctl restart "$unit"
 REMOTE_SVC
 }
 
@@ -256,12 +283,14 @@ install_claude_hooks() {
     jq --arg pretool "$H/pretool.sh" \
        --arg posttool "$H/posttool.sh" \
        --arg stop "$H/stop.sh" \
-       --arg notif "$H/notification.sh" '
+       --arg notif "$H/notification.sh" \
+       --arg userprompt "$H/userprompt.sh" '
       .hooks = (.hooks // {})
-      | .hooks.PreToolUse    = [{ matcher: ".*", hooks: [{ type: "command", command: $pretool }] }]
-      | .hooks.PostToolUse   = [{ matcher: ".*", hooks: [{ type: "command", command: $posttool }] }]
-      | .hooks.Stop          = [{ matcher: ".*", hooks: [{ type: "command", command: $stop }] }]
-      | .hooks.Notification  = [{ matcher: ".*", hooks: [{ type: "command", command: $notif }] }]
+      | .hooks.PreToolUse       = [{ matcher: ".*", hooks: [{ type: "command", command: $pretool }] }]
+      | .hooks.PostToolUse      = [{ matcher: ".*", hooks: [{ type: "command", command: $posttool }] }]
+      | .hooks.Stop             = [{ matcher: ".*", hooks: [{ type: "command", command: $stop }] }]
+      | .hooks.Notification     = [{ matcher: ".*", hooks: [{ type: "command", command: $notif }] }]
+      | .hooks.UserPromptSubmit = [{ matcher: ".*", hooks: [{ type: "command", command: $userprompt }] }]
     ' "$settings" > "$tmp" && mv "$tmp" "$settings"
 REMOTE_HOOKS
 }
@@ -273,7 +302,7 @@ uninstall_claude_hooks() {
     settings="$HOME/.claude/settings.json"
     [ -f "$settings" ] || exit 0
     tmp="$(mktemp)"
-    jq 'if .hooks then del(.hooks.PreToolUse, .hooks.PostToolUse, .hooks.Stop, .hooks.Notification) else . end' \
+    jq 'if .hooks then del(.hooks.PreToolUse, .hooks.PostToolUse, .hooks.Stop, .hooks.Notification, .hooks.UserPromptSubmit) else . end' \
        "$settings" > "$tmp" && mv "$tmp" "$settings"
 REMOTE_HOOKS_DEL
 }
@@ -321,6 +350,13 @@ cleanup_v210_artifacts() {
   ssh "$host" bash << 'REMOTE_CLEAN' 2>/dev/null || true
     set +e
     export PATH="$HOME/.local/bin:$PATH"
+    # Kill any lingering call-me/bun process launched from earlier Claude sessions.
+    # The process runs as `bun run src/index.ts` from the call-me/server cwd, so
+    # match on parent-dir instead of command string: walk /proc and kill matches.
+    for pid in $(pgrep -x bun 2>/dev/null); do
+      cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null)" || continue
+      case "$cwd" in *.flowslot/call-me*) kill "$pid" 2>/dev/null ;; esac
+    done
     claude mcp remove --scope user call-me 2>/dev/null
     rm -f  "$HOME/.flowslot/bin/call-me-mcp"
     rm -f  "$HOME/.flowslot/call-me.env"

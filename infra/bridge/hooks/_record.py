@@ -35,6 +35,10 @@ def main() -> int:
     ts = int(time.time())
     tool = payload.get("tool_name")
     args = payload.get("tool_input")
+    # UserPromptSubmit events carry `prompt` instead of `tool_input`. Stash the
+    # prompt text in `args` so the bridge can show it in state queries.
+    if args is None and payload.get("prompt") is not None:
+        args = {"prompt": payload["prompt"]}
     result = payload.get("tool_response") or payload.get("tool_output")
     message = payload.get("message") or payload.get("reason") or payload.get("notification_type")
     session_id = payload.get("session_id")

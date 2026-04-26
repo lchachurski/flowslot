@@ -52,9 +52,17 @@ def verify_hmac(path: str, body: bytes, signature: str | None) -> bool:
         return False
     payload = path.encode() + body
     expected = hmac.new(SECRET, payload, hashlib.sha256).hexdigest()
-    # Accept with or without "sha256=" prefix (ElevenLabs may use either)
     provided = signature.lower().removeprefix("sha256=")
     return hmac.compare_digest(expected, provided)
+
+
+def verify_static_token(token: str | None) -> bool:
+    """Verify a static bearer token (X-Flowslot-Token header) against the shared
+    secret. ElevenLabs CAI's dashboard supports static request headers cleanly
+    but doesn't offer per-request HMAC signing."""
+    if not token:
+        return False
+    return hmac.compare_digest(SECRET.decode(), token.strip().removeprefix("Bearer ").strip())
 
 
 # --- SQLite helpers ---
@@ -68,10 +76,16 @@ def db_connect() -> sqlite3.Connection:
 def state_from_db() -> dict:
     """Compute a structured status snapshot from recent events.
 
-    Logic:
-    - If last event is `pre_tool` (no matching `post_tool` yet): currently executing
-    - If last is `post_tool` or `stop`: idle
-    - If a `notification` came after the last `stop`: waiting for user input
+    States (in priority order):
+    - `executing_tool` — a `pre_tool` event has no matching `post_tool` or
+      `stop` after it. Claude is in a tool call right now.
+    - `thinking`       — a `user_prompt` event has no matching `stop` after it,
+      and no tool is currently running. Claude is processing/streaming text
+      between turns; nothing visible to hooks until the next pre_tool or stop.
+    - `awaiting_input` — last `notification` is more recent than any stop AND
+      any later user_prompt/pre_tool. Claude paused for user input.
+    - `idle`           — last `stop` is more recent than the last user_prompt
+      and there's no pending notification. Claude finished and is waiting.
     """
     with db_connect() as conn:
         last = conn.execute(
@@ -85,6 +99,10 @@ def state_from_db() -> dict:
         ).fetchone()
         last_pre_tool = conn.execute(
             "SELECT id, ts, tool, args FROM events WHERE type='pre_tool' "
+            "ORDER BY ts DESC, id DESC LIMIT 1"
+        ).fetchone()
+        last_user_prompt = conn.execute(
+            "SELECT id, ts, args FROM events WHERE type='user_prompt' "
             "ORDER BY ts DESC, id DESC LIMIT 1"
         ).fetchone()
 
@@ -106,7 +124,12 @@ def state_from_db() -> dict:
     tool_args_brief = None
     elapsed = 0
 
-    # Is Claude currently in a tool call? pre_tool without a later post_tool/stop.
+    stop_ts = last_stop["ts"] if last_stop else 0
+    user_prompt_ts = last_user_prompt["ts"] if last_user_prompt else 0
+    pre_tool_ts = last_pre_tool["ts"] if last_pre_tool else 0
+
+    # 1) Tool currently running? pre_tool without a later post_tool/stop.
+    executing_tool = False
     if last_pre_tool is not None:
         pre_id = last_pre_tool["id"]
         with db_connect() as conn:
@@ -115,16 +138,28 @@ def state_from_db() -> dict:
                 (pre_id,),
             ).fetchone()
         if post_after is None:
+            executing_tool = True
             status = "executing_tool"
             current_tool = last_pre_tool["tool"]
             tool_args_brief = _brief(last_pre_tool["args"])
             elapsed = now - last_pre_tool["ts"]
 
-    # Waiting for input? last notification after last stop.
+    # 2) Thinking? user_prompt is newer than the last stop, and no tool currently
+    # running. This catches the gap between submit→first-tool, and between
+    # post_tool→next-tool, where Claude is streaming/reasoning silently.
+    if not executing_tool and user_prompt_ts > stop_ts:
+        status = "thinking"
+        # Elapsed since the user's prompt landed, OR since the last completed
+        # tool call (whichever is more recent), to give a sense of how long
+        # Claude has been processing this segment.
+        anchor_ts = max(user_prompt_ts, pre_tool_ts)
+        elapsed = max(0, now - anchor_ts)
+
+    # 3) Awaiting input? Notification newer than anything else.
     waiting = False
-    if last_notification is not None:
-        stop_ts = last_stop["ts"] if last_stop else 0
-        if last_notification["ts"] > stop_ts:
+    if not executing_tool and last_notification is not None:
+        last_activity_ts = max(stop_ts, pre_tool_ts, user_prompt_ts)
+        if last_notification["ts"] > last_activity_ts:
             waiting = True
             status = "awaiting_input"
 
@@ -203,9 +238,19 @@ def _last_claude_preview(max_chars: int = 240) -> str | None:
 
 
 def tmux_inject(text: str, urgent: bool = False) -> dict:
-    """Send a message into the Claude tmux REPL.
+    """Send a message into the Claude tmux REPL and actually submit it.
 
-    urgent=True first sends Escape (interrupts current prompt / tool) before the message.
+    Claude Code's REPL uses bracketed-paste. If text and Enter are sent in one
+    `tmux send-keys` call, Enter is consumed as a newline INSIDE the paste
+    block — the message appears in the input buffer but never submits. We use
+    a 3-phase sequence:
+      1. Write the text to a temp file and tmux load-buffer + paste-buffer.
+         The -d flag deletes the buffer after paste. This ensures any embedded
+         newlines and long text land atomically without send-keys quoting hell.
+      2. Wait long enough for the REPL to finish accepting the paste
+         (400 ms is insufficient for >80-char payloads; 900 ms is reliable).
+      3. Send Enter as a completely separate send-keys call, so it lands
+         OUTSIDE the bracketed-paste block as a real submit keystroke.
     """
     if not _tmux_has_session():
         return {"ok": False, "error": f"no tmux session '{TMUX_SESSION}'"}
@@ -215,10 +260,31 @@ def tmux_inject(text: str, urgent: bool = False) -> dict:
             ["tmux", "send-keys", "-t", TMUX_SESSION, "Escape"],
             capture_output=True,
         )
-        time.sleep(0.25)
-    # Send text + Enter as a single send-keys call so Enter isn't swallowed.
+        time.sleep(0.35)
+
+    import tempfile, os as _os
+    tmp_fd, tmp_path = tempfile.mkstemp(prefix="flowslot-inject-", suffix=".txt")
+    try:
+        with _os.fdopen(tmp_fd, "w") as f:
+            f.write(text)
+        buf_name = f"flowslot-inject-{int(time.time()*1000)}"
+        subprocess.run(
+            ["tmux", "load-buffer", "-b", buf_name, tmp_path], capture_output=True
+        )
+        subprocess.run(
+            ["tmux", "paste-buffer", "-d", "-b", buf_name, "-t", TMUX_SESSION],
+            capture_output=True,
+        )
+    finally:
+        try: _os.unlink(tmp_path)
+        except Exception: pass
+
+    # Claude Code's REPL needs the bracketed-paste terminator AND the paste
+    # state machine to settle before Enter will be treated as submit. 0.9s is
+    # reliable for payloads up to a few KB; earlier 0.4s was insufficient.
+    time.sleep(0.9)
     subprocess.run(
-        ["tmux", "send-keys", "-t", TMUX_SESSION, text, "Enter"],
+        ["tmux", "send-keys", "-t", TMUX_SESSION, "Enter"],
         capture_output=True,
     )
     return {
@@ -240,8 +306,14 @@ class Handler(BaseHTTPRequestHandler):
         return self.rfile.read(length) if length > 0 else b""
 
     def _signature_ok(self, body: bytes) -> bool:
+        # Accept either HMAC signature OR a static bearer token. ElevenLabs CAI
+        # can send static headers from its dashboard but can't sign HMACs.
         sig = self.headers.get("X-Flowslot-Signature") or self.headers.get("x-flowslot-signature")
-        return verify_hmac(self.path, body, sig)
+        if sig and verify_hmac(self.path, body, sig):
+            return True
+        token = (self.headers.get("X-Flowslot-Token") or self.headers.get("x-flowslot-token")
+                 or self.headers.get("Authorization"))
+        return verify_static_token(token)
 
     def _reply(self, status: int, payload: dict | str):
         if isinstance(payload, str):
@@ -256,6 +328,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(data)
+        log(f"[bridge] {self.command} {self.path} -> {status} ({len(data)}B)")
 
     def _unauthorized(self):
         self._reply(401, {"error": "invalid signature"})
