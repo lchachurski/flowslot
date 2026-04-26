@@ -76,10 +76,16 @@ def db_connect() -> sqlite3.Connection:
 def state_from_db() -> dict:
     """Compute a structured status snapshot from recent events.
 
-    Logic:
-    - If last event is `pre_tool` (no matching `post_tool` yet): currently executing
-    - If last is `post_tool` or `stop`: idle
-    - If a `notification` came after the last `stop`: waiting for user input
+    States (in priority order):
+    - `executing_tool` — a `pre_tool` event has no matching `post_tool` or
+      `stop` after it. Claude is in a tool call right now.
+    - `thinking`       — a `user_prompt` event has no matching `stop` after it,
+      and no tool is currently running. Claude is processing/streaming text
+      between turns; nothing visible to hooks until the next pre_tool or stop.
+    - `awaiting_input` — last `notification` is more recent than any stop AND
+      any later user_prompt/pre_tool. Claude paused for user input.
+    - `idle`           — last `stop` is more recent than the last user_prompt
+      and there's no pending notification. Claude finished and is waiting.
     """
     with db_connect() as conn:
         last = conn.execute(
@@ -93,6 +99,10 @@ def state_from_db() -> dict:
         ).fetchone()
         last_pre_tool = conn.execute(
             "SELECT id, ts, tool, args FROM events WHERE type='pre_tool' "
+            "ORDER BY ts DESC, id DESC LIMIT 1"
+        ).fetchone()
+        last_user_prompt = conn.execute(
+            "SELECT id, ts, args FROM events WHERE type='user_prompt' "
             "ORDER BY ts DESC, id DESC LIMIT 1"
         ).fetchone()
 
@@ -114,9 +124,11 @@ def state_from_db() -> dict:
     tool_args_brief = None
     elapsed = 0
 
-    # Is Claude currently in a tool call? pre_tool without a later post_tool/stop.
-    # This takes priority over `awaiting_input` — if a tool is running, we are
-    # NOT idle and NOT awaiting-input, regardless of any stale Notification event.
+    stop_ts = last_stop["ts"] if last_stop else 0
+    user_prompt_ts = last_user_prompt["ts"] if last_user_prompt else 0
+    pre_tool_ts = last_pre_tool["ts"] if last_pre_tool else 0
+
+    # 1) Tool currently running? pre_tool without a later post_tool/stop.
     executing_tool = False
     if last_pre_tool is not None:
         pre_id = last_pre_tool["id"]
@@ -132,17 +144,21 @@ def state_from_db() -> dict:
             tool_args_brief = _brief(last_pre_tool["args"])
             elapsed = now - last_pre_tool["ts"]
 
-    # Waiting for input? last notification after last stop — but only if no
-    # tool is currently running. Otherwise a stale Notification from an earlier
-    # pause would mask an in-flight tool call.
+    # 2) Thinking? user_prompt is newer than the last stop, and no tool currently
+    # running. This catches the gap between submit→first-tool, and between
+    # post_tool→next-tool, where Claude is streaming/reasoning silently.
+    if not executing_tool and user_prompt_ts > stop_ts:
+        status = "thinking"
+        # Elapsed since the user's prompt landed, OR since the last completed
+        # tool call (whichever is more recent), to give a sense of how long
+        # Claude has been processing this segment.
+        anchor_ts = max(user_prompt_ts, pre_tool_ts)
+        elapsed = max(0, now - anchor_ts)
+
+    # 3) Awaiting input? Notification newer than anything else.
     waiting = False
     if not executing_tool and last_notification is not None:
-        stop_ts = last_stop["ts"] if last_stop else 0
-        # Also require that the notification is newer than any subsequent
-        # pre_tool (which would mean Claude resumed working since the notif).
-        last_activity_ts = stop_ts
-        if last_pre_tool is not None and last_pre_tool["ts"] > last_activity_ts:
-            last_activity_ts = last_pre_tool["ts"]
+        last_activity_ts = max(stop_ts, pre_tool_ts, user_prompt_ts)
         if last_notification["ts"] > last_activity_ts:
             waiting = True
             status = "awaiting_input"

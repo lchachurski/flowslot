@@ -283,12 +283,14 @@ install_claude_hooks() {
     jq --arg pretool "$H/pretool.sh" \
        --arg posttool "$H/posttool.sh" \
        --arg stop "$H/stop.sh" \
-       --arg notif "$H/notification.sh" '
+       --arg notif "$H/notification.sh" \
+       --arg userprompt "$H/userprompt.sh" '
       .hooks = (.hooks // {})
-      | .hooks.PreToolUse    = [{ matcher: ".*", hooks: [{ type: "command", command: $pretool }] }]
-      | .hooks.PostToolUse   = [{ matcher: ".*", hooks: [{ type: "command", command: $posttool }] }]
-      | .hooks.Stop          = [{ matcher: ".*", hooks: [{ type: "command", command: $stop }] }]
-      | .hooks.Notification  = [{ matcher: ".*", hooks: [{ type: "command", command: $notif }] }]
+      | .hooks.PreToolUse       = [{ matcher: ".*", hooks: [{ type: "command", command: $pretool }] }]
+      | .hooks.PostToolUse      = [{ matcher: ".*", hooks: [{ type: "command", command: $posttool }] }]
+      | .hooks.Stop             = [{ matcher: ".*", hooks: [{ type: "command", command: $stop }] }]
+      | .hooks.Notification     = [{ matcher: ".*", hooks: [{ type: "command", command: $notif }] }]
+      | .hooks.UserPromptSubmit = [{ matcher: ".*", hooks: [{ type: "command", command: $userprompt }] }]
     ' "$settings" > "$tmp" && mv "$tmp" "$settings"
 REMOTE_HOOKS
 }
@@ -300,7 +302,7 @@ uninstall_claude_hooks() {
     settings="$HOME/.claude/settings.json"
     [ -f "$settings" ] || exit 0
     tmp="$(mktemp)"
-    jq 'if .hooks then del(.hooks.PreToolUse, .hooks.PostToolUse, .hooks.Stop, .hooks.Notification) else . end' \
+    jq 'if .hooks then del(.hooks.PreToolUse, .hooks.PostToolUse, .hooks.Stop, .hooks.Notification, .hooks.UserPromptSubmit) else . end' \
        "$settings" > "$tmp" && mv "$tmp" "$settings"
 REMOTE_HOOKS_DEL
 }
