@@ -51,15 +51,22 @@ def call_elevenlabs_outbound(message: str, reason: str) -> dict:
     phone_number_id = env_required("FLOWSLOT_ELEVENLABS_PHONE_NUMBER_ID")
     to_number = env_required("FLOWSLOT_TWILIO_TO")
 
+    # Per-call override of the agent's first_message: speak Claude's
+    # `message` directly when the user picks up — replaces the agent's static
+    # greeting for outbound calls. The agent's system prompt sees `reason` as
+    # a dynamic variable so it knows whether this was done/question/blocker.
     body = {
         "agent_id": agent_id,
         "agent_phone_number_id": phone_number_id,
         "to_number": to_number,
         "conversation_initiation_client_data": {
+            "agent": {
+                "first_message": message,
+            },
             "dynamic_variables": {
                 "initial_message": message,
                 "reason": reason,
-            }
+            },
         },
     }
     req = urllib.request.Request(
