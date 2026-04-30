@@ -8,6 +8,134 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.12.0] - 2026-04-30
+
+Two-week iteration on `slot claude voice` based on real end-to-end usage.
+v2.11.0 shipped the architecture; this release fixes the bugs that surfaced
+when actually using it. Plus: slots now have working git push out of the box.
+
+### Added — new features
+
+- **`slot claude voice watch`** — a 3-pane local tmux dashboard streaming
+  the slot live: top pane attaches read-only to Claude's REPL, middle pane
+  follows the bridge's HTTP log (every CAI tool webhook with status), bottom
+  pane streams Claude Code hook events from `bridge.db` as they fire. Use it
+  while on a phone call to see exactly what the agent + Claude are doing.
+- **`thinking` state** — bridge can now distinguish "Claude is reasoning
+  between tool calls" from "Claude is idle". Backed by a new
+  `UserPromptSubmit` hook recorded in `bridge.db`. State priorities are now:
+  `executing_tool` > `thinking` > `awaiting_input` > `idle`. The CAI agent
+  reports thinking accurately ("Claude is processing — about thirty seconds
+  in, no tool yet") instead of incorrectly saying "idle".
+- **Slot-side git push, automatic.** `slot create` now sets up a real `.git`
+  on the slot's remote dir linked to origin (fetches a shallow copy of the
+  target branch, runs `git reset --mixed FETCH_HEAD` so the working tree —
+  the mutagen-synced files — stays untouched while HEAD/index align with
+  upstream). Combined with a global git credential helper that reads from
+  `~/.git-credentials`, slots can `git commit` and `git push` to real GitHub
+  branches with no further setup. Required new config var
+  `FLOWSLOT_GITHUB_TOKEN` (fine-grained PAT, contents: read/write).
+- **Outbound first_message override.** When Claude calls via `call_user`,
+  the agent's opening line is now Claude's actual report (passed via
+  `conversation_initiation_client_data.agent.first_message`), not the
+  static "Hey, Claude's session is up". Users hear what Claude wants to say
+  the moment they pick up.
+- **Inbound auto-state-check.** New first-turn behavior in the agent: on
+  the very first user turn after connect, the agent immediately calls
+  `get_claude_state` (and `get_claude_last_output` if idle) and replies
+  with a single 1–2 sentence state summary. No "what do you need" trailing
+  prompts; the user speaks again if they want to continue.
+- **Static-token auth alongside HMAC.** Bridge now accepts both
+  `X-Flowslot-Signature` (HMAC-SHA256) and `X-Flowslot-Token` (static
+  bearer). ElevenLabs CAI's tool config supports static headers cleanly
+  but doesn't sign per-request HMACs — this is the path that actually
+  makes the integration work in practice.
+- **Per-request bridge log line** — every webhook now logs
+  `[bridge] METHOD PATH -> STATUS (BYTES)` to `journalctl`. Essential for
+  debugging via `slot claude voice logs -f`.
+- **Auto-watch after inject.** After every `inject_message`, the agent now
+  automatically chains `watch_for_stop(90)` and proactively reports when
+  Claude finishes — no more "has it answered yet?" round-trips.
+
+### Changed — agent system prompt overhaul
+
+Driven by real conversation transcripts where the agent fabricated
+content, hallucinated state, or read verbatim when summary was wanted:
+
+- **Default response style is summary, not verbatim.** All tool outputs are
+  summarized in 1–3 sentences by default. Verbatim mode is opt-in only
+  (triggered by explicit phrases: "verbatim", "word for word", "exact
+  words", "read it out", "as-is", "literal text", etc.). Previously the
+  agent defaulted to verbatim for short outputs.
+- **Forbid fabricating inject content.** Agent must faithfully translate
+  what the user actually said. Specific technical content the user did NOT
+  speak (branch names, commit SHAs, command flags, option numbers) must
+  never be invented. Pronouns like "this option" / "the second one" are
+  resolved from the explicit conversation context, never guessed.
+- **Forbid quoting own tool params as user speech.** When asked "why did
+  you do that?", the agent reconstructs from the user's words only — never
+  cites its own `inject_message` arguments back as evidence of what the
+  user said.
+- **Anti-hallucination rule for prior activity.** Agent has no memory
+  beyond the current call's tool responses; it must never claim Claude
+  "previously did X" unless the tool output literally contains that text.
+- **Inbound first_message** is a Claude-specific question
+  ("Hey — want me to check what Claude's up to?") that puts the
+  conversation on the right rails immediately, instead of the previous
+  generic "Hey, Claude's session is up" or the misleading "let me check"
+  promise.
+
+### Fixed
+
+- **`inject_message` now actually submits.** Claude Code's REPL uses
+  bracketed-paste handling — sending text and Enter in one `tmux send-keys`
+  call caused the Enter to be consumed as a newline inside the input
+  buffer. The pasted message would appear in the prompt but never submit,
+  causing the CAI agent to incorrectly believe Claude was idle. Fix:
+  3-phase paste — `load-buffer` → `paste-buffer -d` → 0.9s settle delay →
+  separate `send-keys Enter`. Verified end-to-end with multi-hundred-char
+  injects.
+- **State logic no longer flips to `awaiting_input` mid-tool-call.**
+  Previously a stale `Notification` event from an earlier pause could
+  override an in-flight tool call. Fix: `executing_tool` takes priority;
+  the awaiting-input branch only fires when no tool is currently running
+  AND the notification is newer than any subsequent `pre_tool` /
+  `user_prompt`.
+- **`get_claude_last_output` default lines bumped from 1 to 50.** Agents
+  were calling it with `lines: 1`, getting back the REPL footer
+  ("? for shortcuts"), and reporting that as "Claude's last response".
+  Tool description now warns explicitly against `lines: 1`.
+- **Bridge default port changed from 8080 to 9090.** 8080 collided with
+  common app ports (and with leftover v2.10 call-me processes). 9090 is
+  less contested.
+- **Robust v2.10 cleanup.** `voice enable` now reliably kills lingering
+  call-me bun processes by walking `/proc/<pid>/cwd` for matches under
+  `~/.flowslot/call-me`, instead of fragile command-string matching.
+- **`voice enable` always restarts the systemd unit.** `systemctl enable
+  --now` is a no-op when the unit is already running, so re-running enable
+  used to leave the bridge with stale env vars. Now the unit is always
+  restarted to pick up env changes.
+- **Bridge auto-installs `sqlite3` and `jq`.** These are needed by the hook
+  scripts and MCP registration but aren't on every Ubuntu base image.
+- **Tailscale CLI 1.64+ compatibility.** Replaced the deprecated two-step
+  `tailscale serve --https=443 --set-path=/ http://127.0.0.1:<port>` +
+  `tailscale funnel --bg 443 on` with the single `tailscale funnel --bg
+  <port>` CLI introduced in 1.64. First-time funnel-not-enabled errors
+  now surface the exact one-click enable URL Tailscale provides.
+- **MCP registration uses `claude mcp add`.** Previously wrote into
+  `settings.json`'s `mcpServers` key, which Claude Code silently ignores.
+  Canonical path is `~/.claude.json` via the CLI; switched accordingly.
+
+### Notes
+
+- The v2.10 fork `lchachurski/call-me` is now fully retired from flowslot
+  and is no longer referenced by any code path. Existing slots running
+  v2.10 will get the call-me artifacts auto-cleaned on the next
+  `slot claude voice enable` run.
+- Test pricing per real call: ~$0.11/min inbound (CAI minutes + Polish
+  Twilio inbound), ~$0.20/min outbound to Polish mobile. Number rental
+  ~$1.15/mo. See README "Cost notes" for details.
+
 ## [2.11.0] - 2026-04-22
 
 ### Added
