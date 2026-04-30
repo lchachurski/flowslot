@@ -8,6 +8,51 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.12.1] - 2026-05-01
+
+Two follow-up tweaks identified by reviewing 7 days of voice-call
+transcripts. Both addressed via ElevenLabs API + system-prompt update;
+no code changes on the slot.
+
+### Changed
+
+- **Agent now auto-fetches `get_claude_last_output` whenever a state
+  query benefits from context.** On every "what's Claude doing", "is
+  it done", "any update" question — not just the first turn — the
+  agent now decides whether to also pull recent output:
+  - status `idle`: always (the user wants to know what just finished).
+  - status `executing_tool` / `thinking` with `elapsed_seconds > 60`:
+    yes (long-running work needs in-flight context).
+  - status `awaiting_input`: yes (so the agent can describe what
+    Claude is asking about).
+  - status `executing_tool` / `thinking` with `elapsed_seconds <= 60`:
+    no — skip the extra call, just report state. Keeps short-task
+    state queries snappy.
+  Previously this only happened on the very first turn, leaving the
+  user re-asking "what did it actually say?" mid-call.
+- **Agent voice changed from Brian to Chris** (id `iP95p4xoKVk53GoZ742B`)
+  for a more upbeat, conversational tone. Brian's calm-narrator
+  prosody read as tired on short factual replies. Chris is rated
+  warmer / more energetic in ElevenLabs' catalog.
+- **TTS settings tuned for energy:** `stability` 0.5 → 0.45 (slightly
+  more expressive), `speed` 1.0 → 1.05 (5% faster, less drawn-out).
+  `eleven_flash_v2` model unchanged for low latency.
+- **System prompt: tone / cadence guidance.** Explicit anti-patterns
+  added: no sighs, no slow trail-offs, no "weeellll", no
+  throat-clearing intros ("So, I just checked..."). Lead with the
+  answer, drop fillers ("um", "uh", "you know", "sort of"). Speak
+  like a sharp colleague giving a phone update, not a narrator.
+
+### Plan provenance
+
+Tasks identified by scanning 7 days of ElevenLabs conversation
+transcripts (65 calls) for explicit "note for the flowslot developer"
+flags from the user:
+- conv_8201 @447s (2026-04-25): idle vs thinking detection — done in
+  v2.12.0.
+- conv_9601 @26s (2026-04-29): always surface last_output — done here.
+- conv_5101 @269s (2026-04-28): cheerful/energetic voice — done here.
+
 ## [2.12.0] - 2026-04-30
 
 Two-week iteration on `slot claude voice` based on real end-to-end usage.
