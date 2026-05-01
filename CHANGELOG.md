@@ -8,6 +8,16 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+### Removed
+
+- **`slot desktop` commands (`up` / `down` / `restart`)** and the
+  AppleScript-driven macOS Spaces layout they powered. The original
+  v2.9.0 commit landed on `main` outside its PR (#4 still open against
+  `codex/desktop-subcommands`); the feature is being dropped because
+  the macOS-only, AppleScript-bound implementation conflicts with
+  flowslot's direction toward an OS-agnostic CLI. The PR branch is
+  preserved for reference but will not be merged.
+
 ## [2.12.1] - 2026-05-01
 
 Two follow-up tweaks identified by reviewing 7 days of voice-call
