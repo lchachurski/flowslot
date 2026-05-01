@@ -47,11 +47,6 @@ AI:
   claude voice watch        Open a live 3-pane dashboard: Claude REPL + bridge log + hook events
   claude voice test         Place a test outbound call (bypasses Claude)
 
-DESKTOP:
-  desktop up        Launch desktop layout (one Space per running slot)
-  desktop down      Close windows managed by desktop up
-  desktop restart   Rebuild desktop layout (down + up)
-
 SERVER:
   server start      Start EC2 instance
   server stop       Stop EC2 instance
@@ -182,50 +177,6 @@ case "$1" in
     else
       "$SCRIPT_DIR/slot-claude" "$@"
     fi
-    ;;
-  desktop)
-    shift
-    if ! CONFIG_FILE=$(find_config); then
-      die ".slotconfig not found. Run 'slot self init' first."
-    fi
-    # shellcheck source=/dev/null
-    set -a
-    source "$CONFIG_FILE"
-    set +a
-
-    if [ -z "${1:-}" ]; then
-      log_error "Subcommand required for 'slot desktop'"
-      echo ""
-      echo "Available subcommands:"
-      echo "  up       Launch Chrome + Cursor per running slot"
-      echo "  down     Close windows managed by 'slot desktop up'"
-      echo "  restart  Run down then up"
-      exit 1
-    fi
-
-    case "$1" in
-      up)
-        shift
-        "$SCRIPT_DIR/slot-desktop-up.sh" "$@"
-        ;;
-      down)
-        shift
-        "$SCRIPT_DIR/slot-desktop-down.sh" "$@"
-        ;;
-      restart)
-        shift
-        "$SCRIPT_DIR/slot-desktop-restart.sh" "$@"
-        ;;
-      *)
-        log_error "Unknown subcommand: $1"
-        echo ""
-        echo "Available subcommands:"
-        echo "  up       Launch Chrome + Cursor per running slot"
-        echo "  down     Close windows managed by 'slot desktop up'"
-        echo "  restart  Run down then up"
-        exit 1
-        ;;
-    esac
     ;;
   server)
     shift

@@ -234,9 +234,6 @@ slot server stop
 | `slot list` | Show all slots with port ranges |
 | `slot info [name]` | Show slot details (URLs, ports, status) |
 | `slot compose [name] <args>` | Run docker compose on remote slot |
-| `slot desktop up` | Build macOS layout (one Space per running slot) |
-| `slot desktop down` | Close only desktop windows managed by flowslot |
-| `slot desktop restart` | Rebuild desktop layout (`down` + `up`) |
 | `slot server start` | Start EC2 instance |
 | `slot server stop` | Stop EC2 instance |
 | `slot server status` | Show EC2 status |
@@ -268,43 +265,6 @@ slot compose build --no-cache      # Rebuild
 slot compose logs -f web           # Follow logs
 slot compose exec api bash         # Shell into container
 ```
-
-### Desktop Layout (macOS)
-
-`slot desktop up` launches one browser/editor pair per running slot and places each pair on sequential macOS Spaces:
-
-- Left half: browser (`DESKTOP_BROWSER`, default `Google Chrome`)
-- Right half: editor (`DESKTOP_EDITOR`, default `Cursor`)
-- Optional config in `.slotdesktop` (or `.slotconfig`):
-  - `DESKTOP_START_SPACE=3`
-  - `DESKTOP_LAYOUT="left-right"`
-  - `DESKTOP_BROWSER="Google Chrome"`
-  - `DESKTOP_EDITOR="Cursor"`
-  - `DESKTOP_TOP_OFFSET=28` (optional override; auto-detected when possible)
-
-Commands:
-
-```bash
-slot desktop up
-slot desktop down
-slot desktop restart
-```
-
-One-time setup:
-
-1. Open **System Settings → Desktop & Dock → Mission Control**
-2. Set **Automatically rearrange Spaces based on most recent use** to **OFF**
-3. Open **System Settings → Keyboard → Keyboard Shortcuts → Mission Control**
-4. Enable **Switch to Desktop 1 ... Desktop N** (Ctrl+1 ... Ctrl+N)
-5. Open Mission Control and create enough Spaces with the **+** button
-6. Grant Accessibility permission to your terminal app in **Privacy & Security → Accessibility**
-
-Notes:
-- `slot desktop` cannot create/move Spaces automatically (SIP-safe mode)
-- Space shortcuts are supported for Desktops 1-9
-- `slot desktop down` closes only windows tracked in `.slotdesktop.state`
-
----
 
 ## URLs & Wildcard DNS
 
