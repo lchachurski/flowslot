@@ -2,11 +2,12 @@
 """flowslot voice bridge — HTTP server exposing Claude Code session state
 to an ElevenLabs Conversational AI agent.
 
-Endpoints (all require valid X-Flowslot-Signature HMAC-SHA256 header):
+Endpoints (all require X-Flowslot-Signature HMAC or X-Flowslot-Token header):
   GET  /bridge/state            — structured summary of what Claude is doing
   GET  /bridge/output?lines=N   — raw tmux capture (for verbatim relay)
   POST /bridge/inject           — inject user message into Claude REPL
   GET  /bridge/watch?timeout=N  — long-poll: returns when next Stop event fires
+  GET  /bridge/system_status    — host + slot + bridge metrics (monitoring)
 
 Runs under systemd. Bound to 127.0.0.1:8080; Tailscale Funnel terminates
 TLS at :443 on the tailnet hostname and forwards here.
@@ -194,6 +195,122 @@ def _brief(args_json: str | None, limit: int = 140) -> str | None:
     return json.dumps(args)[:limit]
 
 
+# --- system monitoring ---
+
+def _shell(cmd: list[str], timeout: float = 3.0) -> str:
+    """Run a shell command, return stdout or empty string on failure."""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.stdout
+    except Exception:
+        return ""
+
+
+def system_status_snapshot() -> dict:
+    """Cheap monitoring snapshot of the host + active slot + bridge.
+
+    Designed to return in <200ms. Backs the /bridge/system_status endpoint.
+    Voice agent calls this when the user asks about server/slot health.
+    """
+    out: dict = {"host": {}, "bridge": {}, "slot": {}, "containers": []}
+
+    # ---- host ----
+    try:
+        with open("/proc/uptime") as f:
+            out["host"]["uptime_seconds"] = int(float(f.read().split()[0]))
+    except Exception:
+        pass
+    try:
+        with open("/proc/loadavg") as f:
+            la = f.read().split()
+            out["host"]["load_1m"] = float(la[0])
+            out["host"]["load_5m"] = float(la[1])
+            out["host"]["load_15m"] = float(la[2])
+    except Exception:
+        pass
+    try:
+        with open("/proc/meminfo") as f:
+            mem = {ln.split(":")[0].strip(): ln.split(":")[1].strip()
+                   for ln in f if ":" in ln}
+            total_kb = int(mem.get("MemTotal", "0 kB").split()[0])
+            avail_kb = int(mem.get("MemAvailable", "0 kB").split()[0])
+            if total_kb:
+                out["host"]["memory_total_mb"] = total_kb // 1024
+                out["host"]["memory_used_pct"] = round(
+                    100 * (total_kb - avail_kb) / total_kb, 1)
+    except Exception:
+        pass
+    # disk usage of /
+    df = _shell(["df", "-P", "/"])
+    for line in df.splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[5] == "/":
+            try:
+                out["host"]["disk_root_used_pct"] = int(parts[4].rstrip("%"))
+            except Exception:
+                pass
+            break
+    # CPU load average can stand in for cpu usage; richer pct needs
+    # /proc/stat sampling which is too expensive here.
+
+    # ---- bridge ----
+    try:
+        with db_connect() as conn:
+            now = int(time.time())
+            row = conn.execute("SELECT COUNT(*) FROM events").fetchone()
+            out["bridge"]["events_total"] = row[0] if row else 0
+            row = conn.execute(
+                "SELECT COUNT(*) FROM events WHERE ts > ?", (now - 3600,)
+            ).fetchone()
+            out["bridge"]["events_last_hour"] = row[0] if row else 0
+            row = conn.execute(
+                "SELECT COUNT(*) FROM events WHERE ts > ?", (now - 60,)
+            ).fetchone()
+            out["bridge"]["events_last_minute"] = row[0] if row else 0
+    except Exception:
+        pass
+
+    # ---- slot ----
+    out["slot"]["active_slot"] = ACTIVE_SLOT
+    out["slot"]["tmux_session"] = TMUX_SESSION
+    out["slot"]["tmux_alive"] = _tmux_has_session()
+    # Find the slot's remote dir on the host (assumed under /srv/<project>/)
+    if ACTIVE_SLOT:
+        srv_glob = _shell(["bash", "-c",
+                           f"ls -d /srv/*/{ACTIVE_SLOT}-* 2>/dev/null | head -1"]
+                          ).strip()
+        if srv_glob:
+            out["slot"]["remote_path"] = srv_glob
+            du = _shell(["du", "-sm", srv_glob])
+            if du:
+                try:
+                    out["slot"]["disk_used_mb"] = int(du.split()[0])
+                except Exception:
+                    pass
+            # git state
+            br = _shell(["git", "-C", srv_glob, "branch", "--show-current"]).strip()
+            if br:
+                out["slot"]["git_branch"] = br
+            status = _shell(["git", "-C", srv_glob, "status", "--porcelain"])
+            out["slot"]["git_clean"] = (status.strip() == "")
+
+    # ---- containers (top-level overview, count by state) ----
+    docker_ps = _shell(["bash", "-c", "docker ps --format '{{.Names}}|{{.Status}}' 2>/dev/null"])
+    containers = []
+    for line in docker_ps.splitlines():
+        if "|" not in line:
+            continue
+        name, status = line.split("|", 1)
+        # Filter to this slot's compose-project containers if we know the slot
+        if ACTIVE_SLOT and ACTIVE_SLOT not in name:
+            continue
+        containers.append({"name": name, "status": status})
+    out["containers"] = containers
+    out["containers_count"] = len(containers)
+
+    return out
+
+
 # --- tmux helpers ---
 
 def _tmux_has_session() -> bool:
@@ -366,6 +483,9 @@ class Handler(BaseHTTPRequestHandler):
 
             if parsed.path == "/bridge/health":
                 return self._reply(200, {"ok": True, "slot": ACTIVE_SLOT})
+
+            if parsed.path == "/bridge/system_status":
+                return self._reply(200, system_status_snapshot())
 
             return self._reply(404, {"error": "not found"})
         except Exception as e:

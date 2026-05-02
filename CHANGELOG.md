@@ -8,6 +8,48 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.13.0] - 2026-05-02
+
+Three flowslot-developer tasks identified by transcript review of the
+last 3 days of voice calls.
+
+### Added
+
+- **New bridge endpoint `GET /bridge/system_status`** — host + slot +
+  bridge metrics in one ~150ms call: server uptime, load averages,
+  memory usage, root disk %, slot's tmux state, slot disk usage, slot
+  git branch + clean state, container statuses, bridge event counts
+  (total / last hour / last minute). Surfaced to the ElevenLabs agent
+  as a new tool `get_system_status`. Use case: ask the agent "how's
+  the box doing", "any containers crashed", "how much disk", etc. and
+  it pulls real numbers instead of guessing.
+  Source: conv_9501kqjaxemkfv8rxc7hp8mkk3t0 @258s (2026-05-01).
+
+### Changed — agent system prompt
+
+- **Distinguish "you" (the agent) from "Claude" (the slot).** New rules
+  added so the agent answers questions about itself or general tech
+  topics directly using its own LLM, instead of injecting them to
+  Claude. References "Claude / slot / codex / the developer" → use
+  Claude tools. References "you / the agent / ElevenLabs" or general
+  tech ("how does X work") → answer from own LLM.
+  Source: conv_9501 @258s.
+- **"Note for FlowSlot developer" auto-acknowledgment.** Any phrase
+  matching "note for [the] developer" / "note for myself" /
+  "note for FlowSlot" is now recognized as a meta-note for the human
+  developer. Agent acknowledges with one short sentence and DOES NOT
+  inject anything to Claude, doesn't call tools, doesn't ask follow-ups.
+  Source: conv_6501kqjq629nedh92z07q5xzb6be @4s (2026-05-01).
+- **Agent voice changed from Chris to Jessica** (American female,
+  expressive). User-driven iteration over the last 24h: Brian → Chris
+  → Charlotte (British) → Lily → Jessica.
+
+### Plan provenance
+
+- conv_9501 @258s: monitoring tool — done.
+- conv_9501 @258s: agent vs Claude distinction — done.
+- conv_6501 @4s: auto-acknowledge "note for developer" — done.
+
 ## [2.12.1] - 2026-05-01
 
 Two follow-up tweaks identified by reviewing 7 days of voice-call
