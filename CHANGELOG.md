@@ -8,6 +8,32 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.13.1] - 2026-05-03
+
+Documentation + a small system-prompt fix. No code changes on the slot.
+
+### Added
+
+- **README section: "Voice control with Claude Code".** High-level
+  overview alongside Tailscale, Mutagen, dnsmasq, etc. — explains
+  ElevenLabs Conversational AI as the voice layer, what the agent can
+  do, cost, and a setup-at-a-glance checklist.
+- **New `docs/voice.md`.** Long-form reference: architecture diagram,
+  full tool list, security model (HMAC over path+body, Tailscale Funnel
+  TLS), per-project config, setup walkthrough, why ElevenLabs, known
+  limitations, troubleshooting. Linked from the README.
+
+### Changed — agent system prompt
+
+- **Skip Claude Code rating / feedback prompts.** When Claude Code
+  surfaces a "rate this conversation" / "leave feedback" / survey-style
+  prompt at the end of a session, the voice agent now filters it out
+  instead of reading it. Such meta-prompts from the Claude Code UI are
+  useless on a phone — the agent reports only the substantive task work
+  and never injects a rating on the user's behalf. Re-paste the system
+  prompt from `slot claude voice agent-config` into the ElevenLabs
+  dashboard to pick this up.
+
 ## [2.13.0] - 2026-05-02
 
 Three flowslot-developer tasks identified by transcript review of the

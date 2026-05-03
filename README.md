@@ -69,6 +69,8 @@ Local (Cursor + code)                    Remote Server (containers + builds)
 
 **Secure by default.** All traffic flows through Tailscale's private mesh — no public ports, no exposure to the internet.
 
+**Talk to Claude on the phone.** Run Claude Code on a slot, then call it from anywhere — ask "how's it going?", "what did Claude just say?", "tell it to commit and push". Claude can also call you when it's done, blocked, or has a question. Voice is handled by an [ElevenLabs Conversational AI](https://elevenlabs.io/conversational-ai) agent that talks to a small Python bridge on the slot via [Tailscale Funnel](https://tailscale.com/kb/1223/funnel). See [Voice control with Claude Code](#voice-control-with-claude-code) below — full reference in [docs/voice.md](docs/voice.md).
+
 ---
 
 ## Quick Start
@@ -347,6 +349,77 @@ Flowslot uses **HTTP** (not HTTPS) for local development — SSL termination hap
 1. **dnsmasq on EC2** resolves `*.flowslot.dev` → EC2's Tailscale IP
 2. **Tailscale Split DNS** routes `*.flowslot.dev` queries to the EC2
 3. **Your browser** connects via Tailscale's private network
+
+---
+
+## Voice control with Claude Code
+
+Run Claude Code on a slot and talk to it on the phone — both directions.
+
+```bash
+slot claude my-slot                    # start Claude in a tmux session on the slot
+slot claude voice enable               # install bridge + hooks + voice-outbound MCP
+slot claude voice agent-config         # prints system prompt + tool config —
+                                       # paste once into your ElevenLabs dashboard
+slot claude voice test                 # places a test call to your phone
+```
+
+Then call your ElevenLabs number anytime and say things like:
+
+- *"How's it going?"* → agent reports Claude's status in one sentence
+- *"What did Claude just say? Read it verbatim."* → reads the raw output word-for-word
+- *"Tell Claude to commit with message 'wip refactor' and push."* → injects the message and waits for Claude to finish
+- *"Stay on the line until it's done."* → blocks until Claude's next stop event, then summarizes
+- *"How's the box doing?"* → server load, RAM, disk, container statuses
+
+Claude can also call **you**. Prompt it with *"call me when the test suite finishes and tell me whether anything failed"*, then walk away — your phone rings when Claude has news.
+
+### How it works
+
+| Layer | What | Why |
+|-------|------|-----|
+| **[ElevenLabs CAI](https://elevenlabs.io/conversational-ai)** | Voice agent: STT, TTS, barge-in, turn-taking | One product handles inbound + outbound calls and quality is a step up from generic TTS |
+| **Python bridge** (~600 lines, stdlib only) | systemd service on the slot, exposes 5 HTTP tools (`get_claude_state`, `get_claude_last_output`, `inject_message`, `watch_for_stop`, `get_system_status`) | Answers "what's Claude doing?" in ~50 ms; injects messages via tmux |
+| **Claude Code hooks** | `PreToolUse`, `PostToolUse`, `Stop`, `Notification`, `UserPromptSubmit` write structured events to a SQLite DB | Bridge can introspect Claude's session without scraping the terminal |
+| **`voice-outbound` MCP** | stdio MCP server registered with Claude on the slot; exposes `call_user(message, reason)` | Claude initiates the outbound call; per-call `first_message` carries Claude's actual context to your ear |
+| **[Tailscale Funnel](https://tailscale.com/kb/1223/funnel)** | Public HTTPS endpoint with auto-issued cert | TLS termination + DNS handled by Tailscale; no port-forwarding, no Let's Encrypt to manage |
+
+Trust boundary: Funnel URL is public, but every webhook must carry a valid `X-Flowslot-Signature` HMAC-SHA256 over `path + body` with a per-slot secret generated on `voice enable`. Wrong signature → 401. All other slot traffic stays on the Tailscale mesh.
+
+### Cost
+
+| Item | Cost |
+|------|------|
+| ElevenLabs Conversational AI | ~$0.10/minute (tariff varies by plan) |
+| Tailscale Funnel | Free on Personal and Starter plans |
+| Outbound calls (Claude → you) | A few cents per call |
+| The bridge itself | $0 (Python stdlib, runs on the slot's EC2) |
+
+A typical day with a few check-ins and a couple of Claude call-backs runs ~$1–2.
+
+### Setup at a glance
+
+1. ElevenLabs account → API key, agent ID, phone number ID (one-time).
+2. Tailscale Funnel enabled in your tailnet ACL (one-time; `voice enable` prints the one-click URL).
+3. Add `FLOWSLOT_ELEVENLABS_API_KEY`, `FLOWSLOT_ELEVENLABS_AGENT_ID`, `FLOWSLOT_ELEVENLABS_PHONE_NUMBER_ID`, `FLOWSLOT_TWILIO_TO` to `.slotconfig`.
+4. `slot claude voice enable` — installs everything on the slot.
+5. `slot claude voice agent-config` → paste output into the ElevenLabs dashboard.
+6. `slot claude voice test` → confirm round-trip.
+
+Full reference, security model, agent behavior tuning, troubleshooting:
+**[docs/voice.md](docs/voice.md)**.
+
+### Voice subcommands
+
+| Command | What it does |
+|---------|--------------|
+| `slot claude voice enable` | Install bridge + hooks + MCP, configure Funnel, generate HMAC secret |
+| `slot claude voice disable` | Stop bridge, remove hooks, unregister MCP, Funnel off |
+| `slot claude voice status` | Show systemd state, Funnel URL, hook + MCP registration |
+| `slot claude voice logs [-f]` | `journalctl` of `flowslot-bridge.service` |
+| `slot claude voice watch` | Local 3-pane tmux dashboard: live Claude session, bridge HTTP log, hook events |
+| `slot claude voice agent-config` | Print system prompt + tool JSONs ready for ElevenLabs dashboard |
+| `slot claude voice test` | Place a test outbound call via the MCP |
 
 ---
 
