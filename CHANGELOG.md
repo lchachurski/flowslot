@@ -8,6 +8,18 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.13.2] - 2026-05-20
+
+### Fixed
+
+- **`slot claude --local` now passes `--dangerously-skip-permissions`.**
+  Remote mode (the default) already used it on every invocation; local
+  mode was the lone gap, so running Claude against your Mac's source
+  dir would prompt for every tool call. Now both modes start Claude
+  with permissions skipped by default — matching the rest of the
+  Flowslot UX, where the slot (or your local checkout under
+  `slot claude --local`) is treated as a sandbox.
+
 ## [2.13.1] - 2026-05-03
 
 Documentation + a small system-prompt fix. No code changes on the slot.
