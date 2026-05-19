@@ -97,9 +97,9 @@ if [ $LOCAL -eq 1 ]; then
   cd "$target_dir"
   if [ $HEADLESS -eq 1 ]; then
     [ ${#PROMPT_ARGS[@]} -gt 0 ] || die "--headless requires a prompt"
-    exec claude -p "${PROMPT_ARGS[*]}"
+    exec claude -p --dangerously-skip-permissions "${PROMPT_ARGS[*]}"
   else
-    exec claude "${PROMPT_ARGS[@]}"
+    exec claude --dangerously-skip-permissions "${PROMPT_ARGS[@]}"
   fi
 fi
 
