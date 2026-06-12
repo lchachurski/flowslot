@@ -71,6 +71,11 @@ export AWS_KEY_NAME="flowslot-dev"
 #                                    Used to sign tool webhooks from CAI to the
 #                                    bridge. Header: X-Flowslot-Signature.
 # SLOT_CLAUDE_DEFAULT                remote (default) or local — flip `slot claude`.
+# SLOT_CLAUDE_MODEL                  Model passed to `claude --model`. Accepts an
+#                                    alias (e.g. 'opus', 'sonnet', 'haiku') or a
+#                                    full model ID (e.g. 'claude-sonnet-4-6').
+#                                    Unset = Claude Code CLI default. Override
+#                                    per-invocation with `slot claude --model <id>`.
 #
 # One-time: enable Tailscale Funnel for the EC2 machine in your tailnet ACL
 # (https://login.tailscale.com/admin/acls). 'voice enable' prints a one-click

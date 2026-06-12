@@ -40,6 +40,10 @@ Options (default mode):
   --headless        Non-interactive run. Streams stream-json output locally,
                     still fires the phone call when done.
   --silent          Suppress the phone call for this run (env FLOWSLOT_SILENT=1).
+  --model <id>      Pass --model to Claude Code. Accepts an alias (e.g. 'opus',
+                    'sonnet') or a full model ID (e.g. 'claude-sonnet-4-6').
+                    Overrides SLOT_CLAUDE_MODEL from .slotconfig for this run.
+                    Default: Claude Code CLI default.
   --refresh         Force re-run of install / auth sync / hook deploy.
   -h, --help        Show this help.
 
@@ -63,6 +67,7 @@ HEADLESS=0
 SILENT=0
 REFRESH=0
 EXPLICIT_SLOT=""
+EXPLICIT_MODEL=""
 PROMPT_ARGS=()
 
 while [ $# -gt 0 ]; do
@@ -71,6 +76,7 @@ while [ $# -gt 0 ]; do
     --local)     LOCAL=1; shift ;;
     --headless)  HEADLESS=1; shift ;;
     --silent)    SILENT=1; shift ;;
+    --model)     EXPLICIT_MODEL="${2:-}"; shift 2 ;;
     --refresh)   REFRESH=1; shift ;;
     -h|--help)   show_help; exit 0 ;;
     --)          shift; PROMPT_ARGS+=("$@"); break ;;
@@ -87,6 +93,12 @@ if [ "$MODE" = "" ] && [ $LOCAL -eq 0 ] && [ "${SLOT_CLAUDE_DEFAULT:-remote}" = 
   LOCAL=1
 fi
 
+# Resolve effective model: CLI flag wins over .slotconfig env var; empty means
+# defer to the Claude Code CLI default (no --model passed).
+EFFECTIVE_MODEL="${EXPLICIT_MODEL:-${SLOT_CLAUDE_MODEL:-}}"
+MODEL_ARGS=()
+[ -n "$EFFECTIVE_MODEL" ] && MODEL_ARGS=(--model "$EFFECTIVE_MODEL")
+
 # -----------------------------------------------------------------------------
 # Local mode: just exec claude in SLOT_SOURCE_DIR. No SSH, no hooks.
 # -----------------------------------------------------------------------------
@@ -97,9 +109,11 @@ if [ $LOCAL -eq 1 ]; then
   cd "$target_dir"
   if [ $HEADLESS -eq 1 ]; then
     [ ${#PROMPT_ARGS[@]} -gt 0 ] || die "--headless requires a prompt"
-    exec claude -p --dangerously-skip-permissions "${PROMPT_ARGS[*]}"
+    exec claude -p --dangerously-skip-permissions \
+      ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} "${PROMPT_ARGS[*]}"
   else
-    exec claude --dangerously-skip-permissions "${PROMPT_ARGS[@]}"
+    exec claude --dangerously-skip-permissions \
+      ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} "${PROMPT_ARGS[@]}"
   fi
 fi
 
@@ -187,6 +201,12 @@ REMOTE_ENV=(
 REMOTE_ENV_STR="${REMOTE_ENV[*]}"
 
 CLAUDE_FLAGS="--dangerously-skip-permissions"
+if [ -n "$EFFECTIVE_MODEL" ]; then
+  # Single-quote the model ID for the remote shell. Model IDs are restricted
+  # to [a-z0-9._-]+ in practice so no escaping is needed, but quote for safety.
+  CLAUDE_FLAGS+=" --model '$EFFECTIVE_MODEL'"
+  log_info "Using Claude model: $EFFECTIVE_MODEL"
+fi
 
 if [ $HEADLESS -eq 1 ]; then
   # -----------------------------------------------------------------------------

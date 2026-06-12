@@ -8,6 +8,25 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.14.0] - 2026-06-12
+
+### Added
+
+- **Model selection for `slot claude`.** Two ways to control which
+  Claude model the slot uses, mirroring the existing
+  `SLOT_CLAUDE_DEFAULT` pattern:
+  - **`.slotconfig`**: `SLOT_CLAUDE_MODEL=<alias-or-id>` — sticks
+    across every `slot claude` invocation on that project. Accepts a
+    Claude Code alias (`opus`, `sonnet`, `haiku`) or a full ID
+    (`claude-sonnet-4-6`, etc.).
+  - **CLI flag**: `slot claude --model <id>` — one-off override that
+    wins over `.slotconfig`.
+  - **Default (unset)**: defer to the Claude Code CLI default — same
+    behaviour as before.
+  - Plumbed through all four launch paths: local interactive,
+    local headless, remote interactive (tmux), remote headless
+    (stream-json over SSH).
+
 ## [2.13.2] - 2026-05-20
 
 ### Fixed
