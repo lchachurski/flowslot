@@ -269,6 +269,12 @@ write_bridge_env() {
     printf 'FLOWSLOT_ELEVENLABS_AGENT_ID=%q\n'      "${FLOWSLOT_ELEVENLABS_AGENT_ID:-}"
     printf 'FLOWSLOT_ELEVENLABS_PHONE_NUMBER_ID=%q\n' "${FLOWSLOT_ELEVENLABS_PHONE_NUMBER_ID:-}"
     printf 'FLOWSLOT_TWILIO_TO=%q\n'                "${FLOWSLOT_TWILIO_TO:-}"
+    # v2.16+: bridge's slot-lifecycle endpoints need the same compose-file list
+    # the local CLI uses. Ships in bridge.env so the bridge knows which files
+    # the consuming project actually wants (avoids picking up prod.yml etc.).
+    printf 'FLOWSLOT_COMPOSE_FILES=%q\n'            "${SLOT_COMPOSE_FILES:-}"
+    printf 'FLOWSLOT_PROJECT_NAME=%q\n'             "${SLOT_PROJECT_NAME:-}"
+    printf 'FLOWSLOT_REPO_URL=%q\n'                 "${SLOT_REPO_URL:-}"
   } > "$tmp"
   # One-shot v2.15 migration: backfill the new events.slot column from the
   # legacy FLOWSLOT_ACTIVE_SLOT value, then overwrite bridge.env without it.
