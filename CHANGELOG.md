@@ -8,6 +8,91 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.16.0] - 2026-06-13
+
+Voice agent gets slot lifecycle controls — create, start Claude, restart
+Claude, destroy — without leaving the call. Same `agent-push` workflow
+ships the new tools and the rewritten system prompt to the live agent.
+
+Driven by a product requirement the user dictated mid-call in
+`conv_3501kv11shqrfghrk0rnaqqdv35a` (turns 40–46) while testing the v2.15
+multi-slot agent.
+
+### Added
+
+- **4 new bridge endpoints under `/bridge/slot/*`:**
+  - `POST /bridge/slot/create  {slot, branch?, confirm}` — clones repo,
+    copies `.env*` from a sibling slot, runs `docker compose up`. 409 if
+    the name is taken. Dry-run when `confirm=false`.
+  - `POST /bridge/slot/start_claude  {slot, model?}` — idempotent;
+    launches a detached tmux session running
+    `claude --dangerously-skip-permissions --model <model>`. Returns
+    `started: false, reason: "already running"` if a session exists.
+  - `POST /bridge/slot/restart_claude  {slot, model?, confirm}` — kills
+    the tmux session and starts a fresh one. Dry-run surfaces current
+    `state_from_db(slot)` so the agent can warn before nuking
+    mid-conversation state.
+  - `POST /bridge/slot/destroy  {slot, confirm}` — kills tmux, runs
+    `docker compose down -v --remove-orphans`, removes the slot dir.
+    Dry-run returns `would_destroy` with container count, dir size, and
+    last event ts for the agent to read back.
+- **3 new helper scripts under `infra/bridge/bin/`** (rsync'd alongside
+  `server.py` during `voice enable`): `slot_create_remote.sh`,
+  `slot_destroy_remote.sh`, `slot_claude_remote.sh`. Extracted from the
+  existing `scripts/slot-create`, `scripts/slot-destroy`,
+  `scripts/slot-claude` SSH blocks so the lifecycle logic isn't
+  duplicated.
+- **4 new agent tools** in `templates/agent-tools.json`: `create_slot`,
+  `start_claude_on_slot`, `restart_claude_on_slot`, `destroy_slot`.
+  Each tool's description spells out the two-call confirm pattern
+  (dry-run → read back plan → user confirms → execute) so the agent
+  can't accidentally skip it.
+
+### Changed
+
+- **`templates/agent-system-prompt.md`** gains a Slot lifecycle section
+  with explicit rules: never chain destructive actions silently, always
+  read the slot name back before any `confirm=true` call, surface 5xx
+  verbatim. Four new recipe examples — create, start, restart, destroy.
+- **`inject_message` acknowledgment strengthened** (fix for live-agent
+  behavior the user flagged at turn 67 of the same call): the agent's
+  first spoken token after `inject_message` MUST now be "Sent." — no
+  intro, no "okay", just the acknowledgment, before calling
+  `watch_for_stop`.
+- **Model resolution for voice-started Claude** = body `model` >
+  host's most-used model (greps `ps -eo args` for any other running
+  `claude --model X`) > `opus`. Voice-created sessions never miss the
+  flag the user explicitly asked for.
+- **All voice-launched Claude sessions get
+  `--dangerously-skip-permissions`**, matching `scripts/slot-claude:189`.
+  No mid-call permission prompts.
+- **`_list_slots_snapshot` cache is busted** on every successful
+  create/destroy/restart write so the next `list_slots` reflects the
+  change immediately (no 10 s stale read).
+
+### Migration
+
+```bash
+slot self upgrade               # pulls v2.16.0
+slot claude voice enable        # rsyncs the new bin/ scripts +
+                                #   redeploys the bridge
+slot claude voice agent-push    # live agent picks up the 4 new tools
+                                #   and the new system prompt via API
+```
+
+Existing v2.15 installs keep working — no schema changes, no env-var
+changes. Without `agent-push`, the live agent still has the v2.15 tool
+set and can't drive the new lifecycle endpoints; the endpoints
+themselves are usable directly via `curl` with the HMAC token from
+`bridge.env`.
+
+### Known gap (documented, deferred)
+
+- A slot created via voice lives only on the AWS host until you run
+  `slot resume <name>` from the project dir on your Mac. Future polish:
+  have `slot resume` auto-create the local clone when the remote slot
+  exists but the local doesn't.
+
 ## [2.15.0] - 2026-06-13
 
 One ElevenLabs CAI agent now controls many slots through one bridge on one
