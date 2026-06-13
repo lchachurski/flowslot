@@ -42,6 +42,12 @@ from urllib.parse import parse_qs, urlparse
 PORT = int(os.environ.get("FLOWSLOT_BRIDGE_PORT", "8080"))
 SECRET = os.environ.get("FLOWSLOT_BRIDGE_HMAC_SECRET", "").encode()
 DB_PATH = os.path.expanduser(os.environ.get("FLOWSLOT_BRIDGE_DB", "~/.flowslot/bridge.db"))
+# v2.16+: lifecycle helpers (create/destroy/start-claude) live next to server.py.
+BIN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin")
+# Port allocation mirrors scripts/lib/common.sh: base 7000, 100 ports per slot.
+PORT_BASE_START = 7000
+PORT_RANGE      = 100
+PORT_BASE_MAX   = 9000
 # Legacy FLOWSLOT_ACTIVE_SLOT is intentionally not read — slot is per-request
 # now. We *do* still honor it during one-shot migration; see lib/claude-voice.sh
 # `write_bridge_env`, which backfills historical rows before dropping the var.
@@ -576,6 +582,116 @@ def tmux_inject(slot: str, text: str, urgent: bool = False) -> dict:
     }
 
 
+# --- slot lifecycle (v2.16+) ---
+
+def _run_bin(script: str, *args: str, timeout: float = 300.0) -> dict:
+    """Run a script from BIN_DIR with args, capture rc/stdout/stderr."""
+    path = os.path.join(BIN_DIR, script)
+    if not os.path.isfile(path):
+        return {"rc": -1, "stdout": "", "stderr": f"missing helper: {path}"}
+    try:
+        r = subprocess.run(
+            ["bash", path, *args],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        return {"rc": r.returncode, "stdout": r.stdout, "stderr": r.stderr}
+    except subprocess.TimeoutExpired:
+        return {"rc": -2, "stdout": "", "stderr": f"timeout after {timeout}s"}
+    except Exception as e:
+        return {"rc": -3, "stdout": "", "stderr": f"{type(e).__name__}: {e}"}
+
+
+def _detect_host_default_model() -> str:
+    """Inspect `ps -eo args` for any other `claude --model X`; pick the most
+    common id, fall back to 'opus'. Lets a voice-created session adopt the
+    model the host is already using on its other slots."""
+    raw = _shell(["bash", "-c", "ps -eo args | grep -E '^claude .*--model' || true"])
+    counts: dict[str, int] = {}
+    for line in raw.splitlines():
+        # Tokenize, find --model and the next arg.
+        toks = line.split()
+        for i, t in enumerate(toks):
+            if t == "--model" and i + 1 < len(toks):
+                m = toks[i + 1].strip("'\"")
+                counts[m] = counts.get(m, 0) + 1
+                break
+    if not counts:
+        return "opus"
+    return max(counts.items(), key=lambda kv: kv[1])[0]
+
+
+def _slot_dir_for(slot: str) -> str | None:
+    """Return the first slot dir matching /srv/*/<slot>-NNNN, or None."""
+    for path in glob.glob(f"/srv/*/{slot}-[0-9][0-9][0-9][0-9]"):
+        if os.path.isdir(path) and _SLOT_DIR_RE.match(path):
+            return path
+    return None
+
+
+def _ports_in_use() -> set[int]:
+    """Set of port_base values currently allocated to slots on this host."""
+    return {s["port_base"] for s in _discover_slots()}
+
+
+def _find_available_port_base() -> int | None:
+    """First free port base in [PORT_BASE_START..PORT_BASE_MAX), step PORT_RANGE.
+    Mirrors find_available_port_base in scripts/lib/common.sh."""
+    in_use = _ports_in_use()
+    for p in range(PORT_BASE_START, PORT_BASE_MAX, PORT_RANGE):
+        if p not in in_use:
+            return p
+    return None
+
+
+def _get_project_config() -> dict | None:
+    """Discover project / repo_url / compose_files / remote_base from any
+    existing slot dir. Returns None if no slots exist on the host (first slot
+    has to be bootstrapped from a Mac via `slot create`)."""
+    slots = _discover_slots()
+    if not slots:
+        return None
+    seed = slots[0]
+    path = seed["remote_path"]
+    repo_url = _shell(["git", "-C", path, "remote", "get-url", "origin"]).strip()
+    compose = [os.path.basename(f) for f in sorted(glob.glob(f"{path}/docker-compose*.yml"))
+               if os.path.basename(f) != "docker-compose.flowslot.yml"]
+    return {
+        "project":       seed["project"],
+        "repo_url":      repo_url,
+        "compose_files": " ".join(compose),
+        "remote_base":   os.path.dirname(path),
+    }
+
+
+def _slot_dir_size_mb(path: str) -> int | None:
+    """`du -sm` for a slot dir, or None on failure."""
+    out = _shell(["du", "-sm", path], timeout=5.0).strip()
+    if not out:
+        return None
+    try:
+        return int(out.split()[0])
+    except Exception:
+        return None
+
+
+def _invalidate_slots_cache() -> None:
+    """Bust the `slots_snapshot_v1` / `system_status_v1` caches so the next
+    /bridge/slots reflects a fresh create/destroy/restart immediately."""
+    try:
+        with db_connect() as conn:
+            conn.execute("DELETE FROM bridge_state WHERE key IN "
+                         "('slots_snapshot_v1','system_status_v1')")
+            conn.commit()
+    except Exception:
+        pass
+
+
+def _slot_session_containers(slot: str, project: str) -> int:
+    """Count of running compose containers belonging to the slot (for destroy plan)."""
+    prefix = f"{project}-{slot}"
+    return sum(1 for (name, _) in _docker_ps() if prefix in name)
+
+
 def watch_for_stop(slot: str, timeout_sec: int) -> dict:
     """Block up to timeout_sec; return when a new `stop` event fires for slot."""
     with db_connect() as conn:
@@ -753,10 +869,178 @@ class Handler(BaseHTTPRequestHandler):
                         hint=f"start one with: slot claude --slot {slot}")
                 return self._reply(200, tmux_inject(slot, text, urgent=urgent))
 
+            # --- v2.16: slot lifecycle endpoints ---
+
+            if parsed.path == "/bridge/slot/create":
+                return self._handle_slot_create(body, q)
+            if parsed.path == "/bridge/slot/start_claude":
+                return self._handle_slot_start_claude(body, q)
+            if parsed.path == "/bridge/slot/restart_claude":
+                return self._handle_slot_restart_claude(body, q)
+            if parsed.path == "/bridge/slot/destroy":
+                return self._handle_slot_destroy(body, q)
+
             return self._not_found()
         except Exception as e:
             log(f"[bridge] ERROR {self.path}: {e}")
             return self._reply(500, {"error": str(e)})
+
+    # --- lifecycle handlers ---
+
+    def _parse_lifecycle(self, body: bytes, query: dict) -> tuple[dict | None, str | None]:
+        """Decode JSON body, resolve+validate slot. Return (payload, slot)
+        or send a 400 reply and return (None, None)."""
+        try:
+            payload = json.loads(body) if body else {}
+        except Exception as e:
+            self._bad_request(f"invalid JSON: {e}")
+            return (None, None)
+        slot = self._resolve_slot(query, payload)
+        if slot is None:
+            self._bad_request("slot required", hint="call /bridge/slots to list")
+            return (None, None)
+        return (payload, slot)
+
+    def _handle_slot_create(self, body: bytes, q: dict):
+        payload, slot = self._parse_lifecycle(body, q)
+        if payload is None:
+            return
+        if _slot_dir_for(slot) is not None:
+            return self._reply(409, {
+                "error": f"slot '{slot}' already exists",
+                "hint":  "pick a different name, or destroy the existing slot first",
+            })
+        cfg = _get_project_config()
+        if cfg is None:
+            return self._reply(409, {
+                "error": "no existing slot on host to derive project config from",
+                "hint":  "bootstrap the first slot from your Mac with 'slot create <name>'",
+            })
+        port = _find_available_port_base()
+        if port is None:
+            return self._reply(409, {"error": "no free port range",
+                                     "hint": "destroy an old slot to reclaim a port"})
+        branch = (payload.get("branch") or slot).strip()
+        plan = {
+            "slot":          slot,
+            "project":       cfg["project"],
+            "port_base":     port,
+            "branch":        branch,
+            "remote_path":   f"{cfg['remote_base']}/{slot}-{port}",
+            "repo_url":      cfg["repo_url"],
+            "compose_files": cfg["compose_files"],
+        }
+        if not payload.get("confirm"):
+            return self._reply(200, {"would_create": plan})
+
+        t0 = time.time()
+        r = _run_bin("slot_create_remote.sh",
+                     slot, cfg["project"], cfg["repo_url"], str(port),
+                     cfg["remote_base"], cfg["compose_files"], branch,
+                     timeout=300.0)
+        ms = int((time.time() - t0) * 1000)
+        if r["rc"] != 0:
+            return self._reply(500, {"error": "slot_create_remote.sh failed",
+                                     "rc": r["rc"], "stderr": r["stderr"][-2000:],
+                                     "stdout": r["stdout"][-2000:]})
+        _invalidate_slots_cache()
+        return self._reply(200, {"created": True, "duration_ms": ms, **plan})
+
+    def _handle_slot_start_claude(self, body: bytes, q: dict):
+        payload, slot = self._parse_lifecycle(body, q)
+        if payload is None:
+            return
+        slot_dir = _slot_dir_for(slot)
+        if slot_dir is None:
+            return self._not_found(f"slot '{slot}' does not exist",
+                                   hint="call /bridge/slots to list")
+        if _tmux_has_session(slot):
+            return self._reply(200, {
+                "started": False, "reason": "already running",
+                "session": _tmux_session_name(slot), "slot": slot,
+            })
+        model = (payload.get("model") or _detect_host_default_model() or "opus").strip()
+        project = os.path.basename(os.path.dirname(slot_dir))
+        r = _run_bin("slot_claude_remote.sh", slot, slot_dir, project, model, timeout=30.0)
+        if r["rc"] != 0:
+            return self._reply(500, {"error": "slot_claude_remote.sh failed",
+                                     "rc": r["rc"], "stderr": r["stderr"][-2000:]})
+        _invalidate_slots_cache()
+        return self._reply(200, {"started": True, "slot": slot,
+                                 "session": _tmux_session_name(slot), "model": model})
+
+    def _handle_slot_restart_claude(self, body: bytes, q: dict):
+        payload, slot = self._parse_lifecycle(body, q)
+        if payload is None:
+            return
+        slot_dir = _slot_dir_for(slot)
+        if slot_dir is None:
+            return self._not_found(f"slot '{slot}' does not exist",
+                                   hint="call /bridge/slots to list")
+        if not payload.get("confirm"):
+            current = state_from_db(slot) if _tmux_has_session(slot) else None
+            return self._reply(200, {
+                "would_restart": {
+                    "slot":        slot,
+                    "tmux_alive":  _tmux_has_session(slot),
+                    "current_state": current,
+                },
+                "hint": "call again with confirm: true to proceed",
+            })
+        model = (payload.get("model") or _detect_host_default_model() or "opus").strip()
+        if _tmux_has_session(slot):
+            subprocess.run(["tmux", "kill-session", "-t", _tmux_session_name(slot)],
+                           capture_output=True)
+            # tmux may report success before fully releasing the session name.
+            time.sleep(0.3)
+        project = os.path.basename(os.path.dirname(slot_dir))
+        r = _run_bin("slot_claude_remote.sh", slot, slot_dir, project, model, timeout=30.0)
+        if r["rc"] != 0:
+            return self._reply(500, {"error": "slot_claude_remote.sh failed",
+                                     "rc": r["rc"], "stderr": r["stderr"][-2000:]})
+        _invalidate_slots_cache()
+        return self._reply(200, {"restarted": True, "slot": slot,
+                                 "session": _tmux_session_name(slot), "model": model})
+
+    def _handle_slot_destroy(self, body: bytes, q: dict):
+        payload, slot = self._parse_lifecycle(body, q)
+        if payload is None:
+            return
+        slot_dir = _slot_dir_for(slot)
+        if slot_dir is None:
+            return self._not_found(f"slot '{slot}' does not exist")
+        m = _SLOT_DIR_RE.match(slot_dir)
+        if not m:
+            return self._reply(500, {"error": f"could not parse slot path: {slot_dir}"})
+        project = m.group("project")
+        port    = int(m.group("port"))
+        last_ev = _slot_last_event(slot)
+        plan = {
+            "slot":             slot,
+            "project":          project,
+            "remote_path":      slot_dir,
+            "port_base":        port,
+            "containers_count": _slot_session_containers(slot, project),
+            "dir_size_mb":      _slot_dir_size_mb(slot_dir),
+            "tmux_alive":       _tmux_has_session(slot),
+            "last_event":       last_ev,
+        }
+        if not payload.get("confirm"):
+            return self._reply(200, {"would_destroy": plan,
+                                     "hint": "call again with confirm: true to proceed"})
+
+        cfg = _get_project_config()
+        compose_files = (cfg or {}).get("compose_files", "")
+        remote_base   = os.path.dirname(slot_dir)
+        t0 = time.time()
+        r = _run_bin("slot_destroy_remote.sh", slot, project, str(port),
+                     remote_base, compose_files, timeout=180.0)
+        ms = int((time.time() - t0) * 1000)
+        if r["rc"] != 0:
+            return self._reply(500, {"error": "slot_destroy_remote.sh failed",
+                                     "rc": r["rc"], "stderr": r["stderr"][-2000:]})
+        _invalidate_slots_cache()
+        return self._reply(200, {"destroyed": True, "duration_ms": ms, **plan})
 
 
 # --- main ---

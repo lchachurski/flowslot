@@ -374,6 +374,10 @@ Then call your ElevenLabs number anytime and say things like:
 - *"Tell model-refresh to commit with message 'wip refactor' and push."* → injects the message into that slot and waits for Claude to finish
 - *"Stay on the line until it's done."* → blocks until that slot's next stop event
 - *"How's the box doing?"* → host load, RAM, disk, all slots' containers in one digest
+- *"Create a slot called auth-fix."* → dry-run plan first, then on your verbal "yes" creates it
+- *"Start Claude on auth-fix."* → launches a detached tmux session with `--dangerously-skip-permissions`
+- *"Restart Claude on model-refresh."* → warns if mid-conversation, restarts on your confirm
+- *"Throw away auth-fix."* → reads back what would be destroyed, requires verbal confirmation
 
 Claude on any slot can also call **you**. Prompt it with *"call me when the test suite finishes"* — your phone rings, the agent already knows which slot called.
 
@@ -382,7 +386,7 @@ Claude on any slot can also call **you**. Prompt it with *"call me when the test
 | Layer | What | Why |
 |-------|------|-----|
 | **[ElevenLabs CAI](https://elevenlabs.io/conversational-ai)** | Voice agent: STT, TTS, barge-in, turn-taking | One product handles inbound + outbound calls and quality is a step up from generic TTS |
-| **Python bridge** (~700 lines, stdlib only) | systemd service on the host, exposes 6 HTTP tools (`list_slots`, `get_claude_state`, `get_claude_last_output`, `inject_message`, `watch_for_stop`, `get_system_status`) — each per-slot tool keyed by `slot=` | Answers "what's Claude doing on slot X?" in ~50 ms; injects messages via tmux; one bridge serves N slots |
+| **Python bridge** (~900 lines, stdlib only) | systemd service on the host, exposes 10 HTTP tools (`list_slots`, `get_claude_state`, `get_claude_last_output`, `inject_message`, `watch_for_stop`, `get_system_status`, **`create_slot`**, **`start_claude_on_slot`**, **`restart_claude_on_slot`**, **`destroy_slot`**) — each per-slot tool keyed by `slot=`, destructive ones two-call (dry-run → confirm) | Answers "what's Claude doing on slot X?" in ~50 ms; injects messages via tmux; spins up / tears down full slots via voice; one bridge serves N slots |
 | **Claude Code hooks** | `PreToolUse`, `PostToolUse`, `Stop`, `Notification`, `UserPromptSubmit` write structured events to a SQLite DB | Bridge can introspect Claude's session without scraping the terminal |
 | **`voice-outbound` MCP** | stdio MCP server registered with Claude on the slot; exposes `call_user(message, reason)` | Claude initiates the outbound call; per-call `first_message` carries Claude's actual context to your ear |
 | **[Tailscale Funnel](https://tailscale.com/kb/1223/funnel)** | Public HTTPS endpoint with auto-issued cert | TLS termination + DNS handled by Tailscale; no port-forwarding, no Let's Encrypt to manage |

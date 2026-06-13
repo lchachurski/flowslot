@@ -73,27 +73,36 @@ Three pieces work together:
 
 ## What the agent can do
 
-The CAI agent has five HTTP tools, all webhooks back to the bridge:
+The CAI agent has ten HTTP tools, all webhooks back to the bridge:
 
 | Tool | What it does |
 |------|--------------|
-| `get_claude_state` | Returns a snapshot: status (`idle` / `executing_tool` / `thinking` / `awaiting_input`), current tool name + brief args, elapsed seconds, and a short preview of recent output. |
-| `get_claude_last_output(lines)` | Raw `tmux capture-pane` of Claude's terminal. Used when you ask for the verbatim text. |
-| `inject_message(text, urgent)` | Pastes a message into Claude's REPL via tmux paste-buffer. `urgent=true` sends Escape first to interrupt the current tool call. |
-| `watch_for_stop(timeout_sec)` | Long-polls until Claude's next turn ends. The agent calls this after every inject so it can proactively report when Claude finishes. |
-| `get_system_status` | Host + slot + bridge metrics: uptime, load, RAM, disk, container statuses, event counts. |
+| `list_slots` | Multi-slot inventory: name, project, port_base, tmux_alive, git_branch, container counts, last_event. Cached 10 s. |
+| `get_claude_state(slot)` | Snapshot for one slot: status (`idle` / `executing_tool` / `thinking` / `awaiting_input`), current tool name + brief args, elapsed seconds, preview. |
+| `get_claude_last_output(slot, lines)` | Raw `tmux capture-pane` of that slot's Claude terminal. Used when you ask for verbatim text. |
+| `inject_message(slot, text, urgent)` | Pastes a message into that slot's Claude REPL via tmux paste-buffer. `urgent=true` sends Escape first to interrupt. |
+| `watch_for_stop(slot, timeout_sec)` | Long-polls until that slot's next Stop event. Called after every inject so the agent can proactively report when Claude finishes. |
+| `get_system_status` | Host + bridge + all-slots overview: uptime, load, RAM, disk, container statuses, event counts. |
+| `create_slot(slot, branch?, confirm)` | Clones repo + copies `.env*` from a sibling + runs `docker compose up`. Two-call: dry-run plan, then confirm. |
+| `start_claude_on_slot(slot, model?)` | Launches a detached tmux session with `claude --dangerously-skip-permissions --model <model>`. Idempotent. |
+| `restart_claude_on_slot(slot, model?, confirm)` | Kills the tmux session + relaunches. Dry-run surfaces current state so the agent warns before nuking mid-conversation work. |
+| `destroy_slot(slot, confirm)` | Kills tmux, `compose down -v --remove-orphans`, rm -rf slot dir. Two-call with strict verbal confirmation. |
 
 What you actually say on the call:
 
 | You say | Agent does |
 |---------|------------|
-| "How's it going?" | `get_claude_state` (+ `get_claude_last_output` if useful) → 1–2 sentence summary. |
-| "What did Claude just say?" | `get_claude_last_output(50)` → summary, in the agent's own words. |
-| "Read that back, verbatim." | `get_claude_last_output(50)` → speaks the text word for word. |
-| "Tell Claude to commit with message 'wip'." | `inject_message(...)` → `watch_for_stop(90)` → "Claude's done, want me to read the answer?" |
-| "Stop, that's wrong." | `inject_message(..., urgent=true)` → "Interrupted. Go ahead." |
-| "Stay on the line until it's done." | `watch_for_stop(120)` → reports when Stop event fires. |
-| "How's the box doing?" | `get_system_status` → "Load 0.4, 38% RAM, 22% disk, three containers up." |
+| "What slots do I have?" | `list_slots` → reads off slots with status + branch. |
+| "How's model-refresh going?" | `get_claude_state(slot=model-refresh)` (+ `get_claude_last_output` if useful) → 1–2 sentence summary. |
+| "What did Claude on feature-x just say?" | `get_claude_last_output(slot=feature-x, 50)` → summary in the agent's own words. |
+| "Read that back, verbatim." | `get_claude_last_output(slot=..., 50)` → word-for-word. |
+| "Tell model-refresh to commit." | `inject_message(slot=model-refresh, ...)` → "Sent." → `watch_for_stop(slot=model-refresh, 90)` → "Claude's done, want me to read the answer?" |
+| "Stop, that's wrong." | `inject_message(slot=..., urgent=true)` → "Interrupted. Go ahead." |
+| "Stay on the line until model-refresh is done." | `watch_for_stop(slot=model-refresh, 120)`. |
+| "How's the box doing?" | `get_system_status` → "Load 0.4, 38% RAM, 22% disk, three slots up." |
+| "Create a slot called auth-fix." | `create_slot(slot=auth-fix, confirm=false)` → reads plan → on verbal yes: `confirm=true` → "Created." |
+| "Start Claude on auth-fix." | `start_claude_on_slot(slot=auth-fix)` → "Started." |
+| "Throw away auth-fix." | `destroy_slot(slot=auth-fix, confirm=false)` → reads plan → on explicit yes: `confirm=true` → "Destroyed." |
 | "Note for FlowSlot developer: …" | Acknowledged silently, no inject, no follow-up question. |
 
 The agent's behavior — when to summarize vs. read verbatim, how to handle

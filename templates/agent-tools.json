@@ -203,6 +203,116 @@
           }
         }
       }
+    },
+    {
+      "name": "create_slot",
+      "description": "Create a new slot on this host (clones the repo, copies sibling .env files, runs docker compose up). TWO-CALL: first call with confirm=false returns the dry-run plan (port_base, branch, repo_url, remote_path). Read the plan back to the user. Only call again with confirm=true after the user explicitly confirms. 409 means the slot name already exists — say so and stop.",
+      "method": "POST",
+      "url": "{{BASE_URL}}/bridge/slot/create",
+      "headers": {
+        "X-Flowslot-Token": "{{FLOWSLOT_BRIDGE_HMAC_SECRET}}",
+        "Content-Type": "application/json"
+      },
+      "body_schema": {
+        "type": "object",
+        "properties": {
+          "slot":    { "type": "string",  "description": "New slot name (lowercase, alphanumeric + dashes)." },
+          "branch":  { "type": "string",  "description": "Git branch to check out. Defaults to the slot name." },
+          "confirm": { "type": "boolean", "default": false, "description": "false = dry-run plan; true = actually create." }
+        },
+        "required": ["slot", "confirm"]
+      },
+      "response_schema": {
+        "type": "object",
+        "properties": {
+          "created":      { "type": "boolean" },
+          "would_create": { "type": "object" },
+          "duration_ms":  { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "start_claude_on_slot",
+      "description": "Start a Claude Code session on an existing slot in a detached tmux session. Idempotent and not destructive: if Claude is already running on that slot, returns started=false with reason='already running' — mention that to the user. No confirmation needed. Model defaults to whichever Claude model is most-used on this host (typically opus); pass `model` to override.",
+      "method": "POST",
+      "url": "{{BASE_URL}}/bridge/slot/start_claude",
+      "headers": {
+        "X-Flowslot-Token": "{{FLOWSLOT_BRIDGE_HMAC_SECRET}}",
+        "Content-Type": "application/json"
+      },
+      "body_schema": {
+        "type": "object",
+        "properties": {
+          "slot":  { "type": "string", "description": "Slot name (see list_slots)." },
+          "model": { "type": "string", "description": "Optional model alias ('opus','sonnet','haiku') or full id. Defaults to host's most-used Claude model." }
+        },
+        "required": ["slot"]
+      },
+      "response_schema": {
+        "type": "object",
+        "properties": {
+          "started": { "type": "boolean" },
+          "reason":  { "type": "string" },
+          "slot":    { "type": "string" },
+          "session": { "type": "string" },
+          "model":   { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "restart_claude_on_slot",
+      "description": "Kill the existing Claude tmux session on a slot and start a fresh one. TWO-CALL: first call with confirm=false returns the slot's current state (tmux_alive, status, elapsed_seconds). If Claude is mid-activity, WARN the user explicitly: 'Claude has been thinking for 40 seconds — restarting drops that. Sure?' Only call again with confirm=true after the user agrees. Model defaults to host's most-used.",
+      "method": "POST",
+      "url": "{{BASE_URL}}/bridge/slot/restart_claude",
+      "headers": {
+        "X-Flowslot-Token": "{{FLOWSLOT_BRIDGE_HMAC_SECRET}}",
+        "Content-Type": "application/json"
+      },
+      "body_schema": {
+        "type": "object",
+        "properties": {
+          "slot":    { "type": "string", "description": "Slot name." },
+          "model":   { "type": "string", "description": "Optional model alias or full id." },
+          "confirm": { "type": "boolean", "default": false, "description": "false = return current state for read-back; true = actually restart." }
+        },
+        "required": ["slot", "confirm"]
+      },
+      "response_schema": {
+        "type": "object",
+        "properties": {
+          "restarted":     { "type": "boolean" },
+          "would_restart": { "type": "object" },
+          "slot":          { "type": "string" },
+          "session":       { "type": "string" },
+          "model":         { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "destroy_slot",
+      "description": "DESTRUCTIVE — wipes a slot completely (kills Claude tmux, `docker compose down -v --remove-orphans`, rm -rf the slot dir). TWO-CALL: first call with confirm=false returns the destruction plan (containers_count, dir_size_mb, last_event). Read it back: 'Destroying <slot> removes <N> containers, <size> MB, and stops Claude. Confirm?' Require an explicit verbal 'yes' or 'destroy <slot>' from the user. Only then call again with confirm=true. 404 means already gone — say so and stop.",
+      "method": "POST",
+      "url": "{{BASE_URL}}/bridge/slot/destroy",
+      "headers": {
+        "X-Flowslot-Token": "{{FLOWSLOT_BRIDGE_HMAC_SECRET}}",
+        "Content-Type": "application/json"
+      },
+      "body_schema": {
+        "type": "object",
+        "properties": {
+          "slot":    { "type": "string",  "description": "Slot name." },
+          "confirm": { "type": "boolean", "default": false, "description": "false = dry-run plan; true = actually destroy." }
+        },
+        "required": ["slot", "confirm"]
+      },
+      "response_schema": {
+        "type": "object",
+        "properties": {
+          "destroyed":     { "type": "boolean" },
+          "would_destroy": { "type": "object" },
+          "duration_ms":   { "type": "integer" }
+        }
+      }
     }
   ]
 }

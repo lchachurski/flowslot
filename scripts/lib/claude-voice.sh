@@ -178,14 +178,18 @@ install_bridge() {
   local host="$1"
   local flowslot_root="$2"
 
-  log_info "Installing bridge server + hooks on slot..."
-  ssh "$host" 'mkdir -p "$HOME/.flowslot/bridge/hooks"'
+  log_info "Installing bridge server + hooks + bin/ helpers on slot..."
+  ssh "$host" 'mkdir -p "$HOME/.flowslot/bridge/hooks" "$HOME/.flowslot/bridge/bin"'
   rsync -az \
     "$flowslot_root/infra/bridge/server.py" \
     "$flowslot_root/infra/bridge/schema.sql" \
     "$flowslot_root/infra/bridge/events-tail.sh" \
     "$host:.flowslot/bridge/"
   rsync -az "$flowslot_root/infra/bridge/hooks/" "$host:.flowslot/bridge/hooks/"
+  # v2.16+: slot-lifecycle helpers (create/destroy/start-claude) invoked by
+  # the bridge's POST /bridge/slot/* endpoints. Co-located with server.py so
+  # the bridge can `subprocess.run` them without an absolute PATH dance.
+  rsync -az "$flowslot_root/infra/bridge/bin/" "$host:.flowslot/bridge/bin/"
 
   # Initialize SQLite DB if missing; idempotent schema upgrade if present.
   ssh "$host" bash << 'REMOTE_DB_INIT'
@@ -195,6 +199,7 @@ install_bridge() {
     chmod +x "$HOME/.flowslot/bridge/hooks/"*.sh "$HOME/.flowslot/bridge/hooks/"*.py 2>/dev/null || true
     chmod +x "$HOME/.flowslot/bridge/server.py" 2>/dev/null || true
     chmod +x "$HOME/.flowslot/bridge/events-tail.sh" 2>/dev/null || true
+    chmod +x "$HOME/.flowslot/bridge/bin/"*.sh 2>/dev/null || true
 REMOTE_DB_INIT
 }
 
