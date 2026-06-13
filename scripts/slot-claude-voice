@@ -96,6 +96,9 @@ case "$ACTION" in
     log_info "Deploying bridge server + hooks..."
     install_bridge "$SLOT_REMOTE_HOST" "$FLOWSLOT_ROOT"
 
+    log_info "Setting up HQ directory (canonical .env* source for voice-created slots)..."
+    ensure_hq_dir "$SLOT_REMOTE_HOST" || log_warn "HQ setup failed; new slots will fall back to sibling env"
+
     log_info "Writing bridge env (and running one-shot v2.15 schema/backfill migration)..."
     write_bridge_env "$SLOT_REMOTE_HOST"
 
