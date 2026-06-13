@@ -43,6 +43,7 @@ AI:
   claude voice disable      Tear down voice chat
   claude voice status       Show voice chat state (bridge, hooks, MCP, Funnel)
   claude voice agent-config Print ElevenLabs agent config (prompt + tools) to paste
+  claude voice agent-push   Sync prompt + tools directly to the live ElevenLabs agent via API
   claude voice logs [-f]    Follow the voice bridge systemd log
   claude voice watch        Open a live 3-pane dashboard: Claude REPL + bridge log + hook events
   claude voice test         Place a test outbound call (bypasses Claude)

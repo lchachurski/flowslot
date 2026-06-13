@@ -8,6 +8,72 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.15.0] - 2026-06-13
+
+One ElevenLabs CAI agent now controls many slots through one bridge on one
+host. Previously each install assumed a single "active slot" baked into
+`bridge.env`; now slot is per-request and the agent has a `list_slots` tool
+to discover them.
+
+### Added
+
+- **`GET /bridge/slots`** — multi-slot inventory: name, project, port_base,
+  tmux_alive, git_branch, git_clean, containers_running/total, last_event.
+  Cached 10 s, fans out git/docker work via `ThreadPoolExecutor` for
+  sub-500ms first-call latency on 5-slot hosts.
+- **`slot` and `project` columns on `events`** — every hook write now
+  carries `FLOWSLOT_SLOT_NAME` and `FLOWSLOT_PROJECT_NAME` from env (already
+  exported by `slot-claude` into the tmux session). Idempotent ALTER on
+  boot, WAL mode enabled for better N-writers concurrency.
+- **`slot claude voice agent-push`** — sync `templates/agent-tools.json` +
+  `agent-system-prompt.md` directly to the live ElevenLabs agent via API.
+  No manual paste. Uses the same PATCH pattern that fixed the HMAC token
+  rotation in v2.13.
+- **`get_system_status` tool exposed in the agent config JSON** — already
+  served by the bridge, was missing from `agent-tools.json`. Now reports
+  a multi-slot summary (host + bridge + per-slot tmux/container/git).
+- **voice-outbound MCP** passes `slot_name` and `project_name` as
+  `dynamic_variables` on outbound calls so the agent opens with the right
+  focus and skips an initial `list_slots` round-trip.
+
+### Changed
+
+- **All per-slot bridge endpoints (`/bridge/state`, `/output`, `/watch`,
+  `/inject`) now require a `slot` query/body field.** Missing → 400.
+  Invalid format → 400. Slot has no live `claude-<slot>` tmux session →
+  404 for `output`/`watch`/`inject` (with hint to start one);
+  `/bridge/state` still returns the DB-derived state with `tmux_alive:
+  false` so the agent can suggest `slot claude --slot <name>`.
+- **`/bridge/system_status`** restructured: replaces the singular
+  `slot` + `containers` keys with `slots: [...]` (each entry summarized).
+- **`/bridge/health`** returns `{ok, slots_total, slots_with_session}`
+  (dropped the singular `slot` field).
+- **Agent system prompt** rewritten around the discover→focus→carry
+  routing loop. Tells the agent to call `list_slots` first, match the
+  user's reference against both project AND slot name, and pass
+  `slot=…` on every per-slot call.
+- **`bridge.env`** no longer carries `FLOWSLOT_ACTIVE_SLOT`. Server ignores
+  it if set. One-shot backfill at upgrade time (in `write_bridge_env`)
+  reads the old value and runs `UPDATE events SET slot=<old> WHERE slot
+  IS NULL` so historical rows stay visible to per-slot queries.
+
+### Migration
+
+Upgrade is two commands from the project dir:
+
+```bash
+slot self upgrade               # pulls v2.15.0
+slot claude voice enable        # rewrites bridge.env, runs the one-shot
+                                #   schema migration + backfill, restarts
+                                #   the bridge service
+slot claude voice agent-push    # PATCHes the ElevenLabs agent's tools +
+                                #   system prompt via API (no manual paste)
+```
+
+If you don't run `agent-push`, existing dashboards will start receiving
+**`400 slot required`** from per-slot endpoints until you re-paste from
+`slot claude voice agent-config`.
+
 ## [2.14.0] - 2026-06-12
 
 ### Added

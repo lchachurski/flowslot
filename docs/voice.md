@@ -178,19 +178,20 @@ This:
 7. Writes a `voice-ready` marker so `slot destroy` can clean up later.
 
 ```bash
-slot claude voice agent-config     # prints system prompt + tool JSONs
-                                   # (with your Funnel URL + HMAC already filled in)
+slot claude voice agent-push       # PATCHes system prompt + tool defs into
+                                   # your ElevenLabs agent via API. Done.
+# OR:
+slot claude voice agent-config     # prints them with Funnel URL + HMAC filled in,
+                                   # for manual paste into the ElevenLabs dashboard.
 ```
-
-Paste both into the ElevenLabs dashboard for your agent. Save.
 
 ```bash
 slot claude voice status           # green across?
 slot claude voice test             # places a test outbound call
 ```
 
-Call your ElevenLabs number, say *"how's it going?"*, and you should hear an
-answer.
+Call your ElevenLabs number, say *"what slots do I have?"*, and the agent should
+read them off.
 
 ### Watching what's happening
 
@@ -264,13 +265,9 @@ in [`templates/agent-tools.json`](../templates/agent-tools.json).
 
 ## Limitations
 
-- **One active voice slot per EC2.** The bridge binds to one
-  `claude-<slot>` tmux session. Switching active slots requires
-  `voice disable` + `voice enable --slot other`. Multi-slot voice routing
-  is on the roadmap.
-- **Manual ElevenLabs setup.** You paste the system prompt and tool JSONs
-  once, by hand. Auto-provisioning via the ElevenLabs API is a future
-  nice-to-have.
+- **One bridge per EC2 host, many slots through it.** The bridge serves
+  every slot on the host; the agent picks `slot=` per request. Multiple
+  hosts each need their own bridge + their own ElevenLabs agent.
 - **No historical replay UI.** The bridge DB has every hook event, but we
   don't ship a dashboard.
 - **Funnel quota.** Tailscale Funnel has a per-tailnet bandwidth quota;

@@ -55,6 +55,10 @@ def call_elevenlabs_outbound(message: str, reason: str) -> dict:
     # `message` directly when the user picks up — replaces the agent's static
     # greeting for outbound calls. The agent's system prompt sees `reason` as
     # a dynamic variable so it knows whether this was done/question/blocker.
+    #
+    # v2.15+: also pass slot_name / project_name so the multi-slot agent
+    # opens with the correct focus and skips an initial list_slots round-trip.
+    # These come from the tmux session env that slot-claude exports.
     body = {
         "agent_id": agent_id,
         "agent_phone_number_id": phone_number_id,
@@ -65,7 +69,9 @@ def call_elevenlabs_outbound(message: str, reason: str) -> dict:
             },
             "dynamic_variables": {
                 "initial_message": message,
-                "reason": reason,
+                "reason":          reason,
+                "slot_name":       os.environ.get("FLOWSLOT_SLOT_NAME", ""),
+                "project_name":    os.environ.get("FLOWSLOT_PROJECT_NAME", ""),
             },
         },
     }
