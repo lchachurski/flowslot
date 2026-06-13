@@ -548,13 +548,19 @@ agent_block = current["conversation_config"]["agent"]
 prompt_block = agent_block.get("prompt") or {}
 
 # 3. Build PATCH body: replace prompt.tools + prompt.prompt only.
+# ElevenLabs rejects both `tools` (inline) and `tool_ids` (workspace refs)
+# in the same prompt block, so we explicitly null tool_ids when sending
+# inline tools. Strip our copied tool_ids before the merge.
+prompt_block = {k: v for k, v in prompt_block.items()
+                if k not in ("tools", "tool_ids")}
 patch = {
     "conversation_config": {
         "agent": {
             "prompt": {
                 **prompt_block,
-                "prompt": prompt_text,
-                "tools":  tools_eleven,
+                "prompt":   prompt_text,
+                "tools":    tools_eleven,
+                "tool_ids": [],
             }
         }
     }
