@@ -644,22 +644,58 @@ def _find_available_port_base() -> int | None:
 
 
 def _get_project_config() -> dict | None:
-    """Discover project / repo_url / compose_files / remote_base from any
-    existing slot dir. Returns None if no slots exist on the host (first slot
-    has to be bootstrapped from a Mac via `slot create`)."""
-    slots = _discover_slots()
-    if not slots:
+    """Discover project / repo_url / compose_files / remote_base.
+
+    Priority for each field:
+    - **repo_url**: env `FLOWSLOT_REPO_URL` (shipped by `write_bridge_env`
+      from the Mac's `.slotconfig`), else `git remote get-url origin` on the
+      first slot dir that has a valid origin. Old slots created before
+      `init_slot_git` ran have no origin — skip them.
+    - **compose_files**: env `FLOWSLOT_COMPOSE_FILES` (the authoritative list
+      from the Mac), else glob discovery as a last-resort fallback.
+    - **project / remote_base**: derived from any discovered slot dir.
+
+    Returns None if there are no slots at all AND no `FLOWSLOT_REPO_URL` —
+    the user has to bootstrap the first slot from a Mac.
+    """
+    slots   = _discover_slots()
+    env_url = os.environ.get("FLOWSLOT_REPO_URL", "").strip()
+    env_cf  = os.environ.get("FLOWSLOT_COMPOSE_FILES", "").strip()
+    env_pj  = os.environ.get("FLOWSLOT_PROJECT_NAME", "").strip()
+
+    if not slots and not env_url:
         return None
-    seed = slots[0]
-    path = seed["remote_path"]
-    repo_url = _shell(["git", "-C", path, "remote", "get-url", "origin"]).strip()
-    compose = [os.path.basename(f) for f in sorted(glob.glob(f"{path}/docker-compose*.yml"))
-               if os.path.basename(f) != "docker-compose.flowslot.yml"]
+
+    project     = env_pj or (slots[0]["project"] if slots else None)
+    remote_base = os.path.dirname(slots[0]["remote_path"]) if slots else f"/srv/{project}"
+
+    # repo_url: env wins; else first slot with a valid origin
+    repo_url = env_url
+    if not repo_url:
+        for s in slots:
+            u = _shell(["git", "-C", s["remote_path"], "remote", "get-url", "origin"]).strip()
+            if u:
+                repo_url = u
+                break
+
+    # compose_files: env wins; else glob discovery on any slot dir
+    if env_cf:
+        compose_files = env_cf
+    elif slots:
+        path = slots[0]["remote_path"]
+        compose = [os.path.basename(f)
+                   for f in sorted(glob.glob(f"{path}/docker-compose*.yml"))
+                   if os.path.basename(f) not in ("docker-compose.flowslot.yml",
+                                                   "docker-compose.prod.yml")]
+        compose_files = " ".join(compose)
+    else:
+        compose_files = ""
+
     return {
-        "project":       seed["project"],
+        "project":       project,
         "repo_url":      repo_url,
-        "compose_files": " ".join(compose),
-        "remote_base":   os.path.dirname(path),
+        "compose_files": compose_files,
+        "remote_base":   remote_base,
     }
 
 

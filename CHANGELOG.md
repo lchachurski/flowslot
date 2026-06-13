@@ -8,6 +8,34 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.16.1] - 2026-06-13
+
+Hotfix for two issues caught during the v2.16.0 smoke-test on the live
+thunder slot — neither was reachable before voice was actually invoked.
+
+### Fixed
+
+- **`_get_project_config` picked an unusable seed slot.** On hosts where
+  older slot dirs lack an `init_slot_git`-managed origin, the bridge
+  would pick the alphabetically-first slot, fail `git remote get-url
+  origin`, and pass an empty `repo_url` to `slot_create_remote.sh` →
+  `git clone` fails. Now iterates slots until it finds one with a valid
+  origin, and prefers the env var `FLOWSLOT_REPO_URL` (shipped from the
+  Mac's `.slotconfig`) when set.
+- **Compose file list over-included `docker-compose.prod.yml`.** The
+  glob discovery grabbed every `docker-compose*.yml` in the seed dir,
+  which on thunder picked up the prod override that dev slots shouldn't
+  touch. Now uses `FLOWSLOT_COMPOSE_FILES` from the Mac (the same list
+  the local CLI uses); falls back to the glob with `prod.yml` excluded.
+
+### Added
+
+- **`write_bridge_env` ships `SLOT_PROJECT_NAME`, `SLOT_REPO_URL`,
+  `SLOT_COMPOSE_FILES`** into `bridge.env` (as `FLOWSLOT_PROJECT_NAME`,
+  `FLOWSLOT_REPO_URL`, `FLOWSLOT_COMPOSE_FILES`). Single source of truth
+  for slot bootstrap config — the bridge now matches the Mac's CLI
+  exactly without guessing.
+
 ## [2.16.0] - 2026-06-13
 
 Voice agent gets slot lifecycle controls — create, start Claude, restart
