@@ -6,7 +6,12 @@ the per-hook wrapper:
 
     cat | _record.py <type>
 
-Where <type> ∈ {pre_tool, post_tool, stop, notification}.
+Where <type> ∈ {pre_tool, post_tool, stop, notification, user_prompt}.
+
+v2.15+: also captures `FLOWSLOT_SLOT_NAME` / `FLOWSLOT_PROJECT_NAME` from env
+(set by `slot-claude` on the tmux session that runs claude). A Claude session
+launched manually outside flowslot writes NULL for both — per-slot queries
+drop the row, which is the intended degradation.
 
 Python stdlib only (sqlite3, json, sys, os).
 """
@@ -42,11 +47,14 @@ def main() -> int:
     result = payload.get("tool_response") or payload.get("tool_output")
     message = payload.get("message") or payload.get("reason") or payload.get("notification_type")
     session_id = payload.get("session_id")
+    slot = os.environ.get("FLOWSLOT_SLOT_NAME") or None
+    project = os.environ.get("FLOWSLOT_PROJECT_NAME") or None
 
     with sqlite3.connect(DB_PATH, timeout=5) as conn:
         conn.execute(
-            "INSERT INTO events (ts, type, tool, args, result, message, session_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO events "
+            "(ts, type, tool, args, result, message, session_id, slot, project) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 ts,
                 event_type,
@@ -55,6 +63,8 @@ def main() -> int:
                 json.dumps(result, ensure_ascii=False) if result is not None else None,
                 message if isinstance(message, str) else None,
                 session_id if isinstance(session_id, str) else None,
+                slot if isinstance(slot, str) else None,
+                project if isinstance(project, str) else None,
             ),
         )
         conn.commit()

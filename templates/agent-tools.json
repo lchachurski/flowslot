@@ -1,32 +1,89 @@
 {
-  "_comment": "ElevenLabs Conversational AI — tool configuration. `slot claude voice agent-config` substitutes {{BASE_URL}} with the live Tailscale Funnel URL and reminds the user to add the X-Flowslot-Signature HMAC-SHA256 header (computed per-request by ElevenLabs) using the secret from .slotconfig. All four tools share the same shared secret.",
+  "_comment": "ElevenLabs Conversational AI — tool configuration. `slot claude voice agent-config` substitutes {{BASE_URL}} with the live Tailscale Funnel URL and writes the X-Flowslot-Token static header from FLOWSLOT_BRIDGE_HMAC_SECRET. `slot claude voice agent-push` PATCHes these directly to the live agent via the ElevenLabs API. v2.15+: one agent talks to MANY slots on the same host — every per-slot tool requires a `slot` field.",
   "tools": [
     {
-      "name": "get_claude_state",
-      "description": "Return a structured snapshot of what Claude is doing right now. Use when the user asks about STATE (how's it going, is Claude stuck, what's Claude working on, is Claude done). Fast call; always prefer over get_claude_last_output when you just need status.",
+      "name": "list_slots",
+      "description": "List slots on this host with status (tmux session alive, git branch, container counts, last activity). ALWAYS call this first if you don't yet know which slot the user means, or whenever focus is ambiguous. Cheap and cached for 10 seconds.",
       "method": "GET",
-      "url": "{{BASE_URL}}/bridge/state",
+      "url": "{{BASE_URL}}/bridge/slots",
       "headers": {
-        "X-Flowslot-Signature": "{{HMAC_SHA256_HEX(path+body, FLOWSLOT_BRIDGE_HMAC_SECRET)}}"
+        "X-Flowslot-Token": "{{FLOWSLOT_BRIDGE_HMAC_SECRET}}"
       },
       "response_schema": {
         "type": "object",
         "properties": {
-          "status": { "type": "string", "enum": ["idle", "executing_tool", "awaiting_input"] },
-          "current_tool": { "type": ["string", "null"] },
-          "tool_args_brief": { "type": ["string", "null"] },
-          "elapsed_seconds": { "type": "integer" },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name":               { "type": "string" },
+                "project":            { "type": "string" },
+                "port_base":          { "type": "integer" },
+                "remote_path":        { "type": "string" },
+                "tmux_alive":         { "type": "boolean" },
+                "git_branch":         { "type": ["string", "null"] },
+                "git_clean":          { "type": ["boolean", "null"] },
+                "containers_running": { "type": "integer" },
+                "containers_total":   { "type": "integer" },
+                "last_event": {
+                  "type": ["object", "null"],
+                  "properties": {
+                    "type":    { "type": "string" },
+                    "ts":      { "type": "integer" },
+                    "tool":    { "type": ["string", "null"] },
+                    "message": { "type": ["string", "null"] }
+                  }
+                }
+              }
+            }
+          },
+          "snapshot_ts": { "type": "integer" },
+          "cached":      { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "get_claude_state",
+      "description": "Return a structured snapshot of what Claude is doing on a specific slot right now. Use when the user asks about STATE (how's it going, is Claude stuck, what's it working on, is it done). Fast call; prefer over get_claude_last_output for status. If `tmux_alive` is false, no Claude session is running for that slot — suggest `slot claude --slot <name>`.",
+      "method": "GET",
+      "url": "{{BASE_URL}}/bridge/state",
+      "query": {
+        "slot": {
+          "type": "string",
+          "description": "Slot name (see list_slots).",
+          "required": true
+        }
+      },
+      "headers": {
+        "X-Flowslot-Token": "{{FLOWSLOT_BRIDGE_HMAC_SECRET}}"
+      },
+      "response_schema": {
+        "type": "object",
+        "properties": {
+          "slot":              { "type": "string" },
+          "tmux_alive":        { "type": "boolean" },
+          "status":            { "type": "string", "enum": ["idle", "thinking", "executing_tool", "awaiting_input"] },
+          "current_tool":      { "type": ["string", "null"] },
+          "tool_args_brief":   { "type": ["string", "null"] },
+          "elapsed_seconds":   { "type": "integer" },
           "waiting_for_input": { "type": "boolean" },
-          "last_claude_preview": { "type": ["string", "null"] }
+          "last_claude_preview": { "type": ["string", "null"] },
+          "last_event_ts":     { "type": ["integer", "null"] }
         }
       }
     },
     {
       "name": "get_claude_last_output",
-      "description": "Return raw text from Claude's terminal (last N lines). Use ONLY when the user asks to READ or HEAR what Claude actually said word-for-word. Speak the returned text VERBATIM — do not paraphrase, do not summarize. For status summaries, use get_claude_state instead.",
+      "description": "Return raw text from Claude's terminal on a specific slot (last N lines). Use ONLY when the user asks to READ or HEAR what Claude actually said word-for-word. Speak the returned text VERBATIM — do not paraphrase, do not summarize. For status, use get_claude_state instead. Returns 404 if no session for that slot.",
       "method": "GET",
       "url": "{{BASE_URL}}/bridge/output",
       "query": {
+        "slot": {
+          "type": "string",
+          "description": "Slot name (see list_slots).",
+          "required": true
+        },
         "lines": {
           "type": "integer",
           "default": 50,
@@ -34,37 +91,39 @@
         }
       },
       "headers": {
-        "X-Flowslot-Signature": "{{HMAC_SHA256_HEX(path+body, FLOWSLOT_BRIDGE_HMAC_SECRET)}}"
+        "X-Flowslot-Token": "{{FLOWSLOT_BRIDGE_HMAC_SECRET}}"
       },
       "response_schema": {
         "type": "object",
         "properties": {
-          "output": { "type": "string" },
+          "slot":    { "type": "string" },
+          "output":  { "type": "string" },
           "session": { "type": "string" }
         }
       }
     },
     {
       "name": "inject_message",
-      "description": "Send a message into Claude's REPL as if the user typed it. Default urgent=false queues the message (Claude picks it up when its current tool finishes). urgent=true sends Escape first to interrupt Claude's current action, then the message. Use urgent only when the user clearly wants to stop Claude's current work.",
+      "description": "Send a message into a specific slot's Claude REPL as if the user typed it. Default urgent=false queues the message (Claude picks it up when its current tool finishes). urgent=true sends Escape first to interrupt Claude's current action, then the message. Use urgent only when the user clearly wants to stop Claude's current work. Returns 404 if the slot has no live Claude session — surface that and suggest `slot claude --slot <name>`.",
       "method": "POST",
       "url": "{{BASE_URL}}/bridge/inject",
       "headers": {
-        "X-Flowslot-Signature": "{{HMAC_SHA256_HEX(path+body, FLOWSLOT_BRIDGE_HMAC_SECRET)}}",
+        "X-Flowslot-Token": "{{FLOWSLOT_BRIDGE_HMAC_SECRET}}",
         "Content-Type": "application/json"
       },
       "body_schema": {
         "type": "object",
         "properties": {
-          "text": { "type": "string", "description": "What to type into Claude's REPL." },
+          "slot":   { "type": "string",  "description": "Slot name (see list_slots)." },
+          "text":   { "type": "string",  "description": "What to type into Claude's REPL." },
           "urgent": { "type": "boolean", "default": false, "description": "If true, interrupt Claude first (Escape), then send." }
         },
-        "required": ["text"]
+        "required": ["slot", "text"]
       },
       "response_schema": {
         "type": "object",
         "properties": {
-          "ok": { "type": "boolean" },
+          "ok":   { "type": "boolean" },
           "mode": { "type": "string", "enum": ["queued", "interrupted_and_sent"] },
           "claude_state_at_send": { "type": "object" }
         }
@@ -72,10 +131,15 @@
     },
     {
       "name": "watch_for_stop",
-      "description": "Long-poll: block until Claude's next turn ends (Stop event), or timeout. Use when the user says 'let me know when it's done' or wants to wait on the call until Claude finishes.",
+      "description": "Long-poll: block until Claude's next turn ends (Stop event) on a specific slot, or timeout. Use when the user says 'let me know when it's done' or wants to wait on the call until Claude finishes. Returns 404 if slot has no session.",
       "method": "GET",
       "url": "{{BASE_URL}}/bridge/watch",
       "query": {
+        "slot": {
+          "type": "string",
+          "description": "Slot name (see list_slots).",
+          "required": true
+        },
         "timeout": {
           "type": "integer",
           "default": 60,
@@ -83,14 +147,60 @@
         }
       },
       "headers": {
-        "X-Flowslot-Signature": "{{HMAC_SHA256_HEX(path+body, FLOWSLOT_BRIDGE_HMAC_SECRET)}}"
+        "X-Flowslot-Token": "{{FLOWSLOT_BRIDGE_HMAC_SECRET}}"
       },
       "response_schema": {
         "type": "object",
         "properties": {
-          "stopped": { "type": "boolean" },
-          "stop_ts": { "type": ["integer", "null"] },
+          "stopped":             { "type": "boolean" },
+          "stop_ts":             { "type": ["integer", "null"] },
           "last_claude_preview": { "type": ["string", "null"] }
+        }
+      }
+    },
+    {
+      "name": "get_system_status",
+      "description": "Host + bridge + all-slots overview in one cheap call. Use when the user asks about server health, load, disk, or wants a global \"what's running\" view. Slots section is summary-only (use list_slots for full per-slot detail).",
+      "method": "GET",
+      "url": "{{BASE_URL}}/bridge/system_status",
+      "headers": {
+        "X-Flowslot-Token": "{{FLOWSLOT_BRIDGE_HMAC_SECRET}}"
+      },
+      "response_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "object",
+            "properties": {
+              "uptime_seconds":      { "type": "integer" },
+              "load_1m":             { "type": "number" },
+              "memory_used_pct":     { "type": "number" },
+              "disk_root_used_pct":  { "type": "integer" }
+            }
+          },
+          "bridge": {
+            "type": "object",
+            "properties": {
+              "events_total":        { "type": "integer" },
+              "events_last_hour":    { "type": "integer" },
+              "events_last_minute":  { "type": "integer" }
+            }
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name":               { "type": "string" },
+                "project":            { "type": "string" },
+                "tmux_alive":         { "type": "boolean" },
+                "containers_running": { "type": "integer" },
+                "containers_total":   { "type": "integer" },
+                "git_branch":         { "type": ["string", "null"] },
+                "last_event_ts":      { "type": ["integer", "null"] }
+              }
+            }
+          }
         }
       }
     }

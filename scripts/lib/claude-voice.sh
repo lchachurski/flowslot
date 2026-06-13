@@ -246,14 +246,17 @@ bridge_service_is_active() {
 
 # Write ~/.flowslot/bridge.env on the slot from local env vars. Consumed by
 # both the bridge systemd unit and the voice-outbound MCP wrapper.
+#
+# v2.15+: FLOWSLOT_ACTIVE_SLOT is no longer written — slot is per-request
+# now. Before overwriting, we capture the OLD FLOWSLOT_ACTIVE_SLOT value (if
+# any) and run a one-time backfill: UPDATE events SET slot = <old> WHERE slot
+# IS NULL. Preserves historical rows for single-slot hosts upgrading to v2.15.
 write_bridge_env() {
   local host="$1"
-  local active_slot="$2"
   local tmp
   tmp="$(mktemp)"
   {
     echo "# Written by slot claude voice enable. Do not edit by hand."
-    printf 'FLOWSLOT_ACTIVE_SLOT=%q\n'              "$active_slot"
     printf 'FLOWSLOT_BRIDGE_PORT=%q\n'              "$FLOWSLOT_BRIDGE_LOCAL_PORT"
     printf 'FLOWSLOT_BRIDGE_DB=%s\n'                "/home/ubuntu/.flowslot/bridge.db"
     printf 'FLOWSLOT_BRIDGE_HMAC_SECRET=%q\n'       "${FLOWSLOT_BRIDGE_HMAC_SECRET:-}"
@@ -262,6 +265,33 @@ write_bridge_env() {
     printf 'FLOWSLOT_ELEVENLABS_PHONE_NUMBER_ID=%q\n' "${FLOWSLOT_ELEVENLABS_PHONE_NUMBER_ID:-}"
     printf 'FLOWSLOT_TWILIO_TO=%q\n'                "${FLOWSLOT_TWILIO_TO:-}"
   } > "$tmp"
+  # One-shot v2.15 migration: backfill the new events.slot column from the
+  # legacy FLOWSLOT_ACTIVE_SLOT value, then overwrite bridge.env without it.
+  # `set -a; source bridge.env; set +a` makes FLOWSLOT_ACTIVE_SLOT available
+  # in the parent shell; Python's sqlite3 handles quoting safely.
+  ssh "$host" 'bash -s' <<'REMOTE_MIGRATE'
+    set -e
+    ENV_FILE="$HOME/.flowslot/bridge.env"
+    DB="$HOME/.flowslot/bridge.db"
+    if [ -f "$ENV_FILE" ] && [ -f "$DB" ]; then
+      OLD_SLOT="$(set -a; . "$ENV_FILE" 2>/dev/null; printf %s "${FLOWSLOT_ACTIVE_SLOT:-}")"
+      if [ -n "$OLD_SLOT" ]; then
+        python3 - "$DB" "$OLD_SLOT" <<'PYMIG'
+import sys, sqlite3
+db, slot = sys.argv[1], sys.argv[2]
+with sqlite3.connect(db, timeout=5) as c:
+    cols = {r[1] for r in c.execute("PRAGMA table_info(events)")}
+    if "slot" not in cols:
+        c.execute("ALTER TABLE events ADD COLUMN slot TEXT")
+    if "project" not in cols:
+        c.execute("ALTER TABLE events ADD COLUMN project TEXT")
+    n = c.execute("UPDATE events SET slot=? WHERE slot IS NULL", (slot,)).rowcount
+    c.commit()
+    print(f"[bridge migrate] backfilled {n} legacy events to slot={slot!r}")
+PYMIG
+      fi
+    fi
+REMOTE_MIGRATE
   ssh "$host" 'umask 077; mkdir -p "$HOME/.flowslot"; cat > "$HOME/.flowslot/bridge.env"' < "$tmp"
   rm -f "$tmp"
 }
@@ -434,4 +464,126 @@ EOF
  ==============================================================================
 
 EOF
+}
+
+
+# ============================================================================
+# Agent push — PATCH the live ElevenLabs CAI agent's tools + system prompt
+# directly via the API, so the user doesn't have to copy-paste each time.
+# Same pattern used to fix the X-Flowslot-Token rotation issue in v2.13.
+# ============================================================================
+
+push_agent_to_elevenlabs() {
+  local flowslot_root="$1"
+  local funnel_url="$2"
+  local hmac_secret="$3"
+  local api_key="$4"
+  local agent_id="$5"
+
+  local tools_file="$flowslot_root/templates/agent-tools.json"
+  local prompt_file="$flowslot_root/templates/agent-system-prompt.md"
+  [ -f "$tools_file" ]  || { log_error "Missing $tools_file"; return 1; }
+  [ -f "$prompt_file" ] || { log_error "Missing $prompt_file"; return 1; }
+
+  python3 - "$tools_file" "$prompt_file" "$funnel_url" "$hmac_secret" "$api_key" "$agent_id" <<'PY'
+import json, sys, urllib.request, urllib.error
+
+tools_file, prompt_file, funnel_url, hmac_secret, api_key, agent_id = sys.argv[1:7]
+ELEVEN = "https://api.elevenlabs.io/v1/convai/agents"
+
+# 1. Load + substitute the flowslot template.
+raw = open(tools_file).read()
+raw = raw.replace("{{BASE_URL}}", funnel_url).replace("{{FLOWSLOT_BRIDGE_HMAC_SECRET}}", hmac_secret)
+src = json.loads(raw)
+prompt_text = open(prompt_file).read()
+
+
+def to_eleven(t):
+    """Convert a flowslot-template tool dict to ElevenLabs CAI webhook tool shape."""
+    api = {
+        "url":             t["url"],
+        "method":          t.get("method", "GET"),
+        "request_headers": t.get("headers", {}),
+    }
+    # Query params: build JSON-schema-style shape from our condensed form.
+    q = t.get("query") or {}
+    if q:
+        props, required = {}, []
+        for name, spec in q.items():
+            entry = {k: v for k, v in spec.items() if k != "required"}
+            props[name] = entry
+            if spec.get("required"):
+                required.append(name)
+        api["query_params_schema"] = {"properties": props, "required": required}
+    # Body schema: pass through if present.
+    if t.get("body_schema"):
+        api["request_body_schema"] = t["body_schema"]
+    return {
+        "name":        t["name"],
+        "description": t["description"],
+        "type":        "webhook",
+        "api_schema":  api,
+    }
+
+
+tools_eleven = [to_eleven(t) for t in src["tools"]]
+
+# 2. Fetch current agent — keep voice/LLM settings untouched.
+def req(method, body=None):
+    r = urllib.request.Request(
+        f"{ELEVEN}/{agent_id}",
+        method=method,
+        headers={"xi-api-key": api_key, "Content-Type": "application/json"},
+        data=json.dumps(body).encode() if body is not None else None,
+    )
+    try:
+        with urllib.request.urlopen(r, timeout=30) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        print(f"[agent-push] HTTP {e.code} on {method}: {e.read().decode()[:500]}", file=sys.stderr)
+        raise
+
+current = req("GET")
+agent_block = current["conversation_config"]["agent"]
+prompt_block = agent_block.get("prompt") or {}
+
+# 3. Build PATCH body: replace prompt.tools + prompt.prompt only.
+patch = {
+    "conversation_config": {
+        "agent": {
+            "prompt": {
+                **prompt_block,
+                "prompt": prompt_text,
+                "tools":  tools_eleven,
+            }
+        }
+    }
+}
+
+req("PATCH", patch)
+
+# 4. Verify round-trip.
+after = req("GET")
+after_tools = after["conversation_config"]["agent"]["prompt"]["tools"]
+names_expected = [t["name"] for t in tools_eleven]
+names_after    = [t["name"] for t in after_tools]
+print(f"[agent-push] expected {len(names_expected)} tools: {names_expected}")
+print(f"[agent-push] now live  {len(names_after)} tools: {names_after}")
+
+# Spot-check: every tool carries the right token.
+mismatches = []
+for t in after_tools:
+    tok = (t.get("api_schema") or {}).get("request_headers", {}).get("X-Flowslot-Token")
+    if tok and tok != hmac_secret:
+        mismatches.append(f"{t.get('name')}: token mismatch")
+if mismatches:
+    print("[agent-push] WARNING:", "; ".join(mismatches), file=sys.stderr)
+    sys.exit(2)
+
+if set(names_after) != set(names_expected):
+    print("[agent-push] WARNING: tool name set diverged after PATCH", file=sys.stderr)
+    sys.exit(3)
+
+print(f"[agent-push] success: agent {agent_id} now serves {len(names_after)} tools, system prompt updated.")
+PY
 }

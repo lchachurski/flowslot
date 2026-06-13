@@ -42,8 +42,12 @@ Subcommands:
   watch          Open a local 3-pane tmux dashboard streaming: live Claude
                  session (read-only), bridge HTTP log, and hook events. Ideal
                  while on a call so you can see what the agent + Claude are doing.
-  agent-config   Print the ElevenLabs CAI agent config — system prompt and the
-                 4 tool definitions, ready to paste into your ElevenLabs dashboard.
+  agent-config   Print the ElevenLabs CAI agent config — system prompt and
+                 tool definitions, ready to paste into your ElevenLabs dashboard.
+  agent-push     Sync templates/agent-tools.json + agent-system-prompt.md
+                 directly to the live ElevenLabs agent via API. No manual
+                 paste needed. Use after upgrading flowslot or rotating the
+                 HMAC secret.
   test           Place an outbound test call via the voice-outbound MCP directly.
 
 Prerequisites (one-time, per tailnet):
@@ -78,10 +82,9 @@ _resolve_active_slot() {
 case "$ACTION" in
   # --------------------------------------------------------------------------
   enable)
-    ACTIVE_SLOT="$(_resolve_active_slot)" || {
-      log_warn "Could not auto-detect active slot. Will use whatever claude-* tmux session exists at call time."
-      ACTIVE_SLOT=""
-    }
+    # v2.15+: bridge is multi-slot now. No "active slot" to resolve up front —
+    # every per-slot tool call from the agent carries `slot=`. `watch` and
+    # `test` subcommands still use _resolve_active_slot for their own work.
 
     ensure_elevenlabs_configured || exit 1
 
@@ -93,8 +96,8 @@ case "$ACTION" in
     log_info "Deploying bridge server + hooks..."
     install_bridge "$SLOT_REMOTE_HOST" "$FLOWSLOT_ROOT"
 
-    log_info "Writing bridge env..."
-    write_bridge_env "$SLOT_REMOTE_HOST" "$ACTIVE_SLOT"
+    log_info "Writing bridge env (and running one-shot v2.15 schema/backfill migration)..."
+    write_bridge_env "$SLOT_REMOTE_HOST"
 
     log_info "Installing systemd unit for bridge..."
     deploy_bridge_systemd "$SLOT_REMOTE_HOST" "$FLOWSLOT_ROOT"
@@ -116,14 +119,14 @@ case "$ACTION" in
     ssh "$SLOT_REMOTE_HOST" 'date -u +%FT%TZ > "$HOME/.flowslot/voice-ready"'
 
     echo ""
-    success "Voice chat enabled."
+    success "Voice chat enabled. (multi-slot — agent picks slot per call)"
     echo ""
-    echo "  Active slot:   ${ACTIVE_SLOT:-<auto-detected at call time>}"
-    echo "  Funnel URL:    ${FUNNEL_URL}"
-    echo "  Agent ID:      ${FLOWSLOT_ELEVENLABS_AGENT_ID}"
+    echo "  Funnel URL: ${FUNNEL_URL}"
+    echo "  Agent ID:   ${FLOWSLOT_ELEVENLABS_AGENT_ID}"
     echo ""
-    echo "Next: run 'slot claude voice agent-config' to get the system prompt and"
-    echo "      tool JSONs to paste into your ElevenLabs agent."
+    echo "Next: 'slot claude voice agent-push' to sync the new tool defs +"
+    echo "      system prompt to your ElevenLabs agent automatically."
+    echo "      (Or 'slot claude voice agent-config' to print them for manual paste.)"
     ;;
 
   # --------------------------------------------------------------------------
@@ -191,6 +194,22 @@ case "$ACTION" in
     [ -n "$FQDN" ] || die "Could not determine Funnel URL; is voice enabled?"
     [ -n "${FLOWSLOT_BRIDGE_HMAC_SECRET:-}" ] || die "FLOWSLOT_BRIDGE_HMAC_SECRET not set — run 'slot claude voice enable' first."
     print_agent_config "$FLOWSLOT_ROOT" "https://${FQDN}" "$FLOWSLOT_BRIDGE_HMAC_SECRET"
+    ;;
+
+  # --------------------------------------------------------------------------
+  agent-push)
+    FQDN="$(get_tailscale_fqdn "$SLOT_REMOTE_HOST")"
+    [ -n "$FQDN" ] || die "Could not determine Funnel URL; is voice enabled?"
+    [ -n "${FLOWSLOT_BRIDGE_HMAC_SECRET:-}" ] || die "FLOWSLOT_BRIDGE_HMAC_SECRET not set — run 'slot claude voice enable' first."
+    [ -n "${FLOWSLOT_ELEVENLABS_API_KEY:-}" ] || die "FLOWSLOT_ELEVENLABS_API_KEY not set in .slotconfig."
+    [ -n "${FLOWSLOT_ELEVENLABS_AGENT_ID:-}" ] || die "FLOWSLOT_ELEVENLABS_AGENT_ID not set in .slotconfig."
+    log_info "Pushing tool defs + system prompt to ElevenLabs agent ${FLOWSLOT_ELEVENLABS_AGENT_ID}..."
+    push_agent_to_elevenlabs \
+      "$FLOWSLOT_ROOT" \
+      "https://${FQDN}" \
+      "$FLOWSLOT_BRIDGE_HMAC_SECRET" \
+      "$FLOWSLOT_ELEVENLABS_API_KEY" \
+      "$FLOWSLOT_ELEVENLABS_AGENT_ID"
     ;;
 
   # --------------------------------------------------------------------------

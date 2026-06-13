@@ -354,32 +354,35 @@ Flowslot uses **HTTP** (not HTTPS) for local development — SSL termination hap
 
 ## Voice control with Claude Code
 
-Run Claude Code on a slot and talk to it on the phone — both directions.
+Run Claude Code on **any number of slots** on one host and talk to all of them
+from one phone agent.
 
 ```bash
-slot claude my-slot                    # start Claude in a tmux session on the slot
+slot claude --slot model-refresh       # start Claude on slot 'model-refresh'
+slot claude --slot feature-x           # start Claude on slot 'feature-x' too
 slot claude voice enable               # install bridge + hooks + voice-outbound MCP
-slot claude voice agent-config         # prints system prompt + tool config —
-                                       # paste once into your ElevenLabs dashboard
+slot claude voice agent-push           # sync system prompt + tool config to your
+                                       # ElevenLabs agent via API (no manual paste)
 slot claude voice test                 # places a test call to your phone
 ```
 
 Then call your ElevenLabs number anytime and say things like:
 
-- *"How's it going?"* → agent reports Claude's status in one sentence
-- *"What did Claude just say? Read it verbatim."* → reads the raw output word-for-word
-- *"Tell Claude to commit with message 'wip refactor' and push."* → injects the message and waits for Claude to finish
-- *"Stay on the line until it's done."* → blocks until Claude's next stop event, then summarizes
-- *"How's the box doing?"* → server load, RAM, disk, container statuses
+- *"What slots do I have?"* → agent calls `list_slots`, reads off the slots
+- *"How's model-refresh going?"* → agent reports that slot's Claude status
+- *"What did feature-x just say? Read it verbatim."* → reads that slot's raw output
+- *"Tell model-refresh to commit with message 'wip refactor' and push."* → injects the message into that slot and waits for Claude to finish
+- *"Stay on the line until it's done."* → blocks until that slot's next stop event
+- *"How's the box doing?"* → host load, RAM, disk, all slots' containers in one digest
 
-Claude can also call **you**. Prompt it with *"call me when the test suite finishes and tell me whether anything failed"*, then walk away — your phone rings when Claude has news.
+Claude on any slot can also call **you**. Prompt it with *"call me when the test suite finishes"* — your phone rings, the agent already knows which slot called.
 
 ### How it works
 
 | Layer | What | Why |
 |-------|------|-----|
 | **[ElevenLabs CAI](https://elevenlabs.io/conversational-ai)** | Voice agent: STT, TTS, barge-in, turn-taking | One product handles inbound + outbound calls and quality is a step up from generic TTS |
-| **Python bridge** (~600 lines, stdlib only) | systemd service on the slot, exposes 5 HTTP tools (`get_claude_state`, `get_claude_last_output`, `inject_message`, `watch_for_stop`, `get_system_status`) | Answers "what's Claude doing?" in ~50 ms; injects messages via tmux |
+| **Python bridge** (~700 lines, stdlib only) | systemd service on the host, exposes 6 HTTP tools (`list_slots`, `get_claude_state`, `get_claude_last_output`, `inject_message`, `watch_for_stop`, `get_system_status`) — each per-slot tool keyed by `slot=` | Answers "what's Claude doing on slot X?" in ~50 ms; injects messages via tmux; one bridge serves N slots |
 | **Claude Code hooks** | `PreToolUse`, `PostToolUse`, `Stop`, `Notification`, `UserPromptSubmit` write structured events to a SQLite DB | Bridge can introspect Claude's session without scraping the terminal |
 | **`voice-outbound` MCP** | stdio MCP server registered with Claude on the slot; exposes `call_user(message, reason)` | Claude initiates the outbound call; per-call `first_message` carries Claude's actual context to your ear |
 | **[Tailscale Funnel](https://tailscale.com/kb/1223/funnel)** | Public HTTPS endpoint with auto-issued cert | TLS termination + DNS handled by Tailscale; no port-forwarding, no Let's Encrypt to manage |
