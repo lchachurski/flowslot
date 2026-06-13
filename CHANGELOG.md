@@ -8,6 +8,51 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.16.2] - 2026-06-13
+
+User tried `create_slot` over voice (conv_1501kv1ayg0xfd598d78r509xmky,
+turns 45–52) and got "internal server error" with no detail. Investigation
+found three issues — all fixed here.
+
+### Fixed
+
+- **Lifecycle tool-script failures now return 200 with `ok: false`** and
+  the error body (`stderr_tail`, `stdout_tail`, `hint`). Previously they
+  returned 500 — and ElevenLabs CAI does not forward 5xx bodies to the
+  agent's LLM, so the user could only hear "internal server error" with
+  nothing actionable. Now the agent can speak the real cause.
+- **`slot_create_remote.sh` cleans up on compose failure.** Previously a
+  failed `docker compose up` left the partial clone at
+  `/srv/<project>/<slot>-NNNN`, blocking retry with a 409. Now we
+  `compose down -v --remove-orphans` + `sudo rm -rf` the dir on rc=4.
+- **Bridge detects the "undefined volume" failure mode** common when a
+  consuming project's `docker-compose.flowslot.yml` doesn't pre-declare
+  enough `postgres-data-N` volumes for higher slot numbers. The 200-body
+  now includes a `hint` like `"add `  postgres-data-9:` under the
+  volumes: block, then retry create"`. Voice agent reads it back.
+
+### Added
+
+- **HQ directory pattern** — `voice enable` now sets up
+  `/srv/<project>/.flowslot-hq/` on the host and rsyncs every `.env*` file
+  from your Mac's `SLOT_SOURCE_DIR` into it. The HQ is the canonical
+  source for env files that voice-created slots inherit. Previously the
+  bridge copied env from a random sibling slot — which could mix per-slot
+  drift back into new slots and broke when no sibling existed.
+  - `slot_create_remote.sh` now copies env from HQ first, falls back to
+    a sibling slot (with a `WARNING:` log) only if HQ doesn't exist.
+  - HQ is hidden (leading dot) so it doesn't match the bridge's
+    slot-discovery glob `/srv/*/*-NNNN`.
+
+### Migration
+
+```bash
+slot self upgrade               # pulls v2.16.2
+slot claude voice enable        # sets up HQ + redeploys bridge
+slot claude voice agent-push    # not required — the agent's tool schema
+                                # didn't change, only the bridge behavior
+```
+
 ## [2.16.1] - 2026-06-13
 
 Hotfix for two issues caught during the v2.16.0 smoke-test on the live

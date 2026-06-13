@@ -584,6 +584,36 @@ def tmux_inject(slot: str, text: str, urgent: bool = False) -> dict:
 
 # --- slot lifecycle (v2.16+) ---
 
+def _tool_failure_body(action: str, run_result: dict, hint: str | None = None) -> dict:
+    """Format a tool-script failure as a 200-able body. ElevenLabs CAI does
+    not forward 5xx bodies to the agent's LLM (the agent only sees the status
+    code as a generic 'internal error'), so wrap downstream failures in 200
+    + ok=false so the agent can speak the real cause to the user."""
+    body = {
+        "ok":          False,
+        "action":      action,
+        "error":       f"{action} failed (rc={run_result['rc']})",
+        "rc":          run_result["rc"],
+        "stderr_tail": (run_result["stderr"] or "").splitlines()[-6:],
+        "stdout_tail": (run_result["stdout"] or "").splitlines()[-4:],
+    }
+    if hint:
+        body["hint"] = hint
+    return body
+
+
+def _compose_volume_hint(stderr: str) -> str | None:
+    """If compose complained about an undefined volume `postgres-data-N`, tell
+    the user exactly which entry to add to their docker-compose.flowslot.yml.
+    """
+    m = re.search(r'refers to undefined volume\s+([a-zA-Z0-9._-]+)', stderr or "")
+    if m:
+        vol = m.group(1)
+        return (f"add `  {vol}:` under the `volumes:` block in your "
+                f"`docker-compose.flowslot.yml`, then retry create")
+    return None
+
+
 def _run_bin(script: str, *args: str, timeout: float = 300.0) -> dict:
     """Run a script from BIN_DIR with args, capture rc/stdout/stderr."""
     path = os.path.join(BIN_DIR, script)
@@ -976,9 +1006,11 @@ class Handler(BaseHTTPRequestHandler):
                      timeout=300.0)
         ms = int((time.time() - t0) * 1000)
         if r["rc"] != 0:
-            return self._reply(500, {"error": "slot_create_remote.sh failed",
-                                     "rc": r["rc"], "stderr": r["stderr"][-2000:],
-                                     "stdout": r["stdout"][-2000:]})
+            # 200 with ok=false so ElevenLabs CAI surfaces the body to the
+            # agent's LLM — a raw 500 hides everything behind a generic
+            # "Internal Server Error" string and the user can't act on it.
+            return self._reply(200, _tool_failure_body(
+                "create", r, hint=_compose_volume_hint(r["stderr"])))
         _invalidate_slots_cache()
         return self._reply(200, {"created": True, "duration_ms": ms, **plan})
 
@@ -999,8 +1031,7 @@ class Handler(BaseHTTPRequestHandler):
         project = os.path.basename(os.path.dirname(slot_dir))
         r = _run_bin("slot_claude_remote.sh", slot, slot_dir, project, model, timeout=30.0)
         if r["rc"] != 0:
-            return self._reply(500, {"error": "slot_claude_remote.sh failed",
-                                     "rc": r["rc"], "stderr": r["stderr"][-2000:]})
+            return self._reply(200, _tool_failure_body("start_claude", r))
         _invalidate_slots_cache()
         return self._reply(200, {"started": True, "slot": slot,
                                  "session": _tmux_session_name(slot), "model": model})
@@ -1032,8 +1063,7 @@ class Handler(BaseHTTPRequestHandler):
         project = os.path.basename(os.path.dirname(slot_dir))
         r = _run_bin("slot_claude_remote.sh", slot, slot_dir, project, model, timeout=30.0)
         if r["rc"] != 0:
-            return self._reply(500, {"error": "slot_claude_remote.sh failed",
-                                     "rc": r["rc"], "stderr": r["stderr"][-2000:]})
+            return self._reply(200, _tool_failure_body("restart_claude", r))
         _invalidate_slots_cache()
         return self._reply(200, {"restarted": True, "slot": slot,
                                  "session": _tmux_session_name(slot), "model": model})
@@ -1073,8 +1103,7 @@ class Handler(BaseHTTPRequestHandler):
                      remote_base, compose_files, timeout=180.0)
         ms = int((time.time() - t0) * 1000)
         if r["rc"] != 0:
-            return self._reply(500, {"error": "slot_destroy_remote.sh failed",
-                                     "rc": r["rc"], "stderr": r["stderr"][-2000:]})
+            return self._reply(200, _tool_failure_body("destroy", r))
         _invalidate_slots_cache()
         return self._reply(200, {"destroyed": True, "duration_ms": ms, **plan})
 

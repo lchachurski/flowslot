@@ -174,6 +174,53 @@ ensure_bridge_deps_installed() {
 # Back-compat alias — old callers.
 ensure_python3_installed() { ensure_bridge_deps_installed "$@"; }
 
+# Set up /srv/<project>/.flowslot-hq/ on the remote — the canonical source
+# for `.env*` files used by `slot_create_remote.sh`. Avoids the bridge having
+# to copy env from a sibling slot, which mixes per-slot drift back into new
+# slots and breaks when there's no sibling.
+#
+# HQ is hidden (leading dot) so it doesn't match the bridge's slot-discovery
+# glob `/srv/*/*-NNNN`.
+ensure_hq_dir() {
+  local host="$1"
+  [ -n "${SLOT_REMOTE_BASE:-}" ] || { log_warn "SLOT_REMOTE_BASE not set; skipping HQ setup"; return 1; }
+  [ -n "${SLOT_SOURCE_DIR:-}" ]  || { log_warn "SLOT_SOURCE_DIR not set; skipping HQ setup";  return 1; }
+
+  local hq="$SLOT_REMOTE_BASE/.flowslot-hq"
+  log_info "Setting up HQ dir at $host:$hq..."
+
+  # Create the dir (may need sudo if /srv/<project> doesn't exist yet).
+  # shellcheck disable=SC2029
+  ssh "$host" bash -s "$SLOT_REMOTE_BASE" "$hq" <<'REMOTE_HQ'
+    set -e
+    base="$1"; hq="$2"
+    if [ ! -d "$base" ]; then
+      sudo mkdir -p "$base"
+      sudo chown "$USER:$USER" "$base"
+    fi
+    mkdir -p "$hq"
+REMOTE_HQ
+
+  # rsync just the .env* files from the local source repo. Limit depth (4) and
+  # skip noisy paths to match what slot-create copies on the Mac side.
+  if [ -d "$SLOT_SOURCE_DIR" ]; then
+    local tmp_filelist
+    tmp_filelist="$(mktemp)"
+    ( cd "$SLOT_SOURCE_DIR" && find . -maxdepth 4 -name ".env*" -type f \
+        ! -path "*/node_modules/*" ! -path "*/.git/*" ! -path "*/dist/*" \
+        ! -path "*/.next/*" | sed 's|^\./||' ) > "$tmp_filelist"
+    if [ -s "$tmp_filelist" ]; then
+      log_info "  Syncing $(wc -l < "$tmp_filelist" | tr -d ' ') .env* files into HQ..."
+      rsync -az --files-from="$tmp_filelist" \
+        "$SLOT_SOURCE_DIR/" "$host:$hq/" 2>&1 | tail -5
+    else
+      log_warn "  No .env* files found in $SLOT_SOURCE_DIR — HQ will be empty"
+    fi
+    rm -f "$tmp_filelist"
+  fi
+}
+
+
 install_bridge() {
   local host="$1"
   local flowslot_root="$2"

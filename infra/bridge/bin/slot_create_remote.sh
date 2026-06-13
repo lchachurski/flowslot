@@ -67,17 +67,26 @@ else
   exit 3
 fi
 
-# 4) Copy .env* files from an existing sibling slot of the same project. These
-# are project-level (DB strings, API keys) and gitignored, so they wouldn't
-# come down from `git clone`. Skip silently if no siblings exist.
-SIBLING="$(find "$REMOTE_BASE" -maxdepth 1 -type d -name "*-[0-9][0-9][0-9][0-9]" \
-            -not -path "$REMOTE_PATH" | head -1 || true)"
-if [ -n "$SIBLING" ]; then
-  echo "Copying .env* from $SIBLING..."
-  ( cd "$SIBLING" && find . -maxdepth 4 -name ".env*" -type f \
+# 4) Copy .env* files. Priority: HQ dir (canonical, synced from the Mac during
+# `voice enable`) → sibling slot (legacy fallback). Project-level env (DB
+# strings, API keys) is gitignored, so it wouldn't come down from `git clone`.
+HQ="$REMOTE_BASE/.flowslot-hq"
+ENV_SRC=""
+if [ -d "$HQ" ]; then
+  ENV_SRC="$HQ"
+  echo "Copying .env* from HQ ($HQ)..."
+else
+  ENV_SRC="$(find "$REMOTE_BASE" -maxdepth 1 -type d -name "*-[0-9][0-9][0-9][0-9]" \
+              -not -path "$REMOTE_PATH" | head -1 || true)"
+  if [ -n "$ENV_SRC" ]; then
+    echo "WARNING: no HQ at $HQ; falling back to sibling slot $ENV_SRC" >&2
+  fi
+fi
+if [ -n "$ENV_SRC" ]; then
+  ( cd "$ENV_SRC" && find . -maxdepth 4 -name ".env*" -type f \
       ! -path "*/node_modules/*" ! -path "*/.git/*" ) \
     | while read -r rel_path; do
-        src="$SIBLING/${rel_path#./}"
+        src="$ENV_SRC/${rel_path#./}"
         dst="$REMOTE_PATH/${rel_path#./}"
         mkdir -p "$(dirname "$dst")"
         cp "$src" "$dst"
@@ -116,7 +125,12 @@ if [ -f docker-compose.flowslot.yml ] && ! echo "$COMPOSE_CMD" | grep -q docker-
 fi
 
 if ! eval "$COMPOSE_CMD up -d"; then
-  echo "ERROR: compose up failed" >&2
+  echo "ERROR: compose up failed; rolling back partial clone" >&2
+  # Walk back: try to compose down anything that may have started, then
+  # remove the dir so the next create call isn't blocked by 409.
+  eval "$COMPOSE_CMD down -v --remove-orphans" 2>/dev/null || true
+  cd /
+  sudo rm -rf "$REMOTE_PATH"
   exit 4
 fi
 
