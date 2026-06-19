@@ -49,6 +49,48 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   exit 0
 fi
 
+# v2.17.1: pre-accept Claude Code's workspace-trust dialog for this folder.
+# Without this, the very first `claude` launch on a new slot dir asks
+# "Yes, I trust this folder?" and blocks at that prompt —
+# `--dangerously-skip-permissions` only covers per-tool prompts, not the
+# workspace gate. Voice-driven slots can't answer it. We write
+# `projects[<path>].hasTrustDialogAccepted = true` directly to
+# ~/.claude.json under flock so concurrent claude processes don't clobber
+# each other's writes to the same file.
+python3 - "$REMOTE_PATH" <<'PYTRUST'
+import fcntl, json, os, sys, tempfile
+path = sys.argv[1]
+cfg  = os.path.expanduser("~/.claude.json")
+# fcntl.flock needs an existing file; create empty one if missing.
+if not os.path.exists(cfg):
+    with open(cfg, "w") as f:
+        f.write("{}")
+with open(cfg, "r+") as f:
+    fcntl.flock(f, fcntl.LOCK_EX)
+    try:
+        try:
+            data = json.load(f)
+        except Exception:
+            data = {}
+        projects = data.setdefault("projects", {})
+        proj = projects.setdefault(path, {})
+        if proj.get("hasTrustDialogAccepted") is True:
+            sys.exit(0)  # already trusted; no write needed
+        proj["hasTrustDialogAccepted"] = True
+        # Atomic-ish replace: write to temp in same dir, rename. The flock
+        # we hold is on the original fd, so the rename closes our lock —
+        # but by then we've already updated the file.
+        tmp = tempfile.NamedTemporaryFile(
+            "w", dir=os.path.dirname(cfg), delete=False)
+        json.dump(data, tmp, separators=(",", ":"))
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        tmp.close()
+        os.replace(tmp.name, cfg)
+    finally:
+        fcntl.flock(f, fcntl.LOCK_UN)
+PYTRUST
+
 # Hook context — slot-claude exports FLOWSLOT_SLOT_NAME / FLOWSLOT_PROJECT_NAME
 # into the tmux session so Claude Code's hook subprocess inherits them and
 # tags every row in bridge.db with the slot of origin (see _record.py).
