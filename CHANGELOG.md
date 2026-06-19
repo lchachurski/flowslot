@@ -8,6 +8,19 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.17.1] - 2026-06-19
+
+### Fixed
+
+- **Voice-created slots no longer block on Claude Code's workspace-trust
+  dialog.** Smoke-testing v2.17.0 found that the first `claude` launch on a
+  new slot dir shows "Yes, I trust this folder?" and blocks at that prompt
+  — `--dangerously-skip-permissions` only covers per-tool prompts, not the
+  workspace gate, and the voice agent can't answer it. `slot_claude_remote.sh`
+  now writes `projects[<remote_path>].hasTrustDialogAccepted = true` into
+  `~/.claude.json` (under `fcntl.flock`, with atomic replace) right before
+  spawning the tmux session, so Claude starts at the ready prompt.
+
 ## [2.17.0] - 2026-06-19
 
 Six real voice calls on the v2.16.2 stack (today, thunder project,
