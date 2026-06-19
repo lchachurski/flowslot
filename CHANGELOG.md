@@ -8,6 +8,75 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.17.0] - 2026-06-19
+
+Six real voice calls on the v2.16.2 stack (today, thunder project,
+`conv_2001kvffbrcsfe9te0tm98ht1cqg` through `conv_1801kvgnzkwpfbk9m9txdrzsegtj`)
+surfaced five concrete quality issues. All fixed in one release.
+
+### Added
+
+- **`create_slot` now auto-starts Claude.** The bridge's
+  `POST /bridge/slot/create` runs `slot_claude_remote.sh` immediately after a
+  successful `slot_create_remote.sh`, so the response carries
+  `claude_started: true`, `session`, and `model`. The voice agent no longer
+  needs to chain `start_claude_on_slot` after every create — one tool call
+  leaves the slot ready for `inject_message`. If Claude fails to start (rare),
+  the slot is still kept (it's perfectly usable) and the response includes
+  `claude_started: false` + `claude_error` so the agent can offer a retry.
+- **`gh` (GitHub CLI) is installed + authenticated on the slot host during
+  `voice enable`.** Previously Claude on voice-created slots had to fall back
+  to raw `curl https://api.github.com/...` because `gh: command not found`.
+  Now `ensure_gh_installed` adds the official `cli.github.com` apt source and
+  installs `gh`; `sync_gh_auth_to_host` rsyncs your Mac's
+  `~/.config/gh/hosts.yml` to the host (and runs `gh auth setup-git`), so
+  `gh pr list` / `gh issue view` / `git push https` all Just Work without
+  another secret to manage. Refuses to proceed if your Mac isn't already
+  `gh auth login`'d, with a clear error.
+- **`get_claude_state` reports `bootstrapping: true` + `output_tail` for
+  fresh slots.** When the bridge DB has no events for a slot yet (the
+  newly-created case), the single-line `last_claude_preview` is almost
+  always the bypass-permissions banner — and the voice agent was reading
+  that as "Claude hasn't responded" even when Claude had clearly chatted on
+  screen. The response now also includes a 40-line ANSI-stripped
+  `output_tail` so the agent has the actual buffer to read.
+
+### Fixed
+
+- **`watch_for_stop` no longer triggers HTTP 504s in the ElevenLabs
+  transcript.** The endpoint used to block up to 300 s server-side, but the
+  ElevenLabs CAI gateway times out tool calls around 28 s, surfacing every
+  long wait as an error in the agent's tool-result stream. We now cap the
+  server-side wait at 22 s and return `200 {stopped: false,
+  still_working: true, waited_seconds: 22}` instead. The agent loops on
+  `still_working: true` to keep waiting. Eleven of the 27 "errors" we saw
+  in today's six calls were this single failure mode.
+- **System prompt: no cross-slot extrapolation.** In `conv_3701` turn 149
+  the agent said "On model-refresh, Claude has been using Git and updating
+  GitHub through authenticated API calls" — but the most recent
+  `get_claude_last_output` on `model-refresh` showed prose review work,
+  no git/gh commands. The phrasing was carried over from a *different*
+  slot's prior result. New rule: every statement about a slot must be
+  grounded in the most recent tool call for that exact slot.
+- **System prompt: verify inject results from the buffer before
+  reporting.** Strengthened the inject_message follow-up recipe — agent
+  must call `get_claude_last_output(slot)` on the same slot before
+  describing what Claude said, instead of speaking from memory of an
+  earlier turn or a different slot.
+
+### Migration
+
+```bash
+slot self upgrade                          # pulls v2.17.0
+slot claude voice enable                   # installs gh, syncs gh auth,
+                                           # redeploys bridge with new code
+slot claude voice agent-push               # uploads updated agent tools
+                                           # + system prompt to ElevenLabs
+```
+
+The `voice enable` step now requires your Mac to be already `gh auth login`'d.
+If you haven't, run `gh auth login` first.
+
 ## [2.16.2] - 2026-06-13
 
 User tried `create_slot` over voice (conv_1501kv1ayg0xfd598d78r509xmky,

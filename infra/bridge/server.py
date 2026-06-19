@@ -183,6 +183,13 @@ def state_from_db(slot: str) -> dict:
     }
 
     if last is None:
+        # No events recorded for this slot yet. Either the slot was just
+        # created (Stop hook hasn't fired) or hooks aren't wired up. The bare
+        # one-line `last_claude_preview` here is almost always the
+        # bypass-permissions banner — surfacing only that string trains the
+        # agent to say "Claude hasn't responded". Include `bootstrapping:true`
+        # and a multi-line `output_tail` so the agent has the actual buffer
+        # to read instead of falling back to a wrong conclusion.
         return {
             **base,
             "status": "idle",
@@ -192,6 +199,8 @@ def state_from_db(slot: str) -> dict:
             "waiting_for_input": False,
             "last_claude_preview": _last_claude_preview(slot) if tmux_alive else None,
             "last_event_ts": None,
+            "bootstrapping": True,
+            "output_tail": _last_output_tail(slot) if tmux_alive else None,
         }
 
     status = "idle"
@@ -535,6 +544,22 @@ def _last_claude_preview(slot: str, max_chars: int = 240) -> str | None:
     return last[-max_chars:] if len(last) > max_chars else last
 
 
+def _last_output_tail(slot: str, lines: int = 40) -> str | None:
+    """ANSI-stripped tail of tmux scrollback for `claude-<slot>`. Used as a
+    fallback signal when the bridge DB has no events yet (newly created
+    slot) — `last_claude_preview` is a single line and can mislead the agent
+    into reporting 'no response' when Claude has actually been chatting on
+    screen but hooks haven't fired/landed yet."""
+    text = tmux_capture(slot, lines=lines * 4)
+    if not text:
+        return None
+    text = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", text)
+    out_lines = [ln.rstrip() for ln in text.splitlines() if ln.strip()]
+    if not out_lines:
+        return None
+    return "\n".join(out_lines[-lines:])
+
+
 def tmux_inject(slot: str, text: str, urgent: bool = False) -> dict:
     """Inject a message into `claude-<slot>` REPL and submit it.
 
@@ -758,8 +783,18 @@ def _slot_session_containers(slot: str, project: str) -> int:
     return sum(1 for (name, _) in _docker_ps() if prefix in name)
 
 
+# ElevenLabs CAI gateway times out tool calls around ~28s. We cap the
+# server-side block at 22s so the agent gets a clean 200 + still_working
+# response instead of a 504 it would have to surface as a tool error.
+WATCH_MAX_WAIT_SEC = 22
+
+
 def watch_for_stop(slot: str, timeout_sec: int) -> dict:
-    """Block up to timeout_sec; return when a new `stop` event fires for slot."""
+    """Block up to min(timeout_sec, WATCH_MAX_WAIT_SEC); on Stop event return
+    `stopped: true`; on cap, return `stopped: false, still_working: true` so
+    the caller knows to loop. Always 200 — never let the upstream gateway
+    time out the HTTP connection."""
+    capped = max(1, min(int(timeout_sec or WATCH_MAX_WAIT_SEC), WATCH_MAX_WAIT_SEC))
     with db_connect() as conn:
         baseline = conn.execute(
             "SELECT ts FROM events WHERE slot = ? AND type='stop' "
@@ -767,7 +802,7 @@ def watch_for_stop(slot: str, timeout_sec: int) -> dict:
             (slot,),
         ).fetchone()
     baseline_ts = baseline["ts"] if baseline else 0
-    deadline = time.time() + timeout_sec
+    deadline = time.time() + capped
     while time.time() < deadline:
         with db_connect() as conn:
             row = conn.execute(
@@ -782,7 +817,13 @@ def watch_for_stop(slot: str, timeout_sec: int) -> dict:
                 "last_claude_preview": _last_claude_preview(slot),
             }
         time.sleep(1)
-    return {"stopped": False, "last_claude_preview": _last_claude_preview(slot)}
+    return {
+        "stopped":             False,
+        "still_working":       True,
+        "waited_seconds":      capped,
+        "last_claude_preview": _last_claude_preview(slot),
+        "hint":                "call again to keep waiting",
+    }
 
 
 # --- HTTP handlers ---
@@ -897,8 +938,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self._not_found(
                         f"no claude session for slot '{slot}'",
                         hint=f"start one with: slot claude --slot {slot}")
-                timeout = int((q.get("timeout") or ["60"])[0])
-                timeout = max(1, min(timeout, 300))
+                timeout = int((q.get("timeout") or [str(WATCH_MAX_WAIT_SEC)])[0])
+                # watch_for_stop internally caps to WATCH_MAX_WAIT_SEC; the
+                # outer clamp just guards against negative input.
+                timeout = max(1, timeout)
                 return self._reply(200, watch_for_stop(slot, timeout))
 
             return self._not_found()
@@ -1011,8 +1054,29 @@ class Handler(BaseHTTPRequestHandler):
             # "Internal Server Error" string and the user can't act on it.
             return self._reply(200, _tool_failure_body(
                 "create", r, hint=_compose_volume_hint(r["stderr"])))
+
+        # v2.17: launch Claude immediately so the slot is usable on return —
+        # one round-trip from the voice agent's perspective (create + ready).
+        # Failure to start Claude doesn't fail the create; the slot is fine,
+        # the agent can recover with start_claude_on_slot.
+        model = (payload.get("model") or _detect_host_default_model() or "opus").strip()
+        cr = _run_bin("slot_claude_remote.sh",
+                      slot, plan["remote_path"], cfg["project"], model,
+                      timeout=30.0)
+        claude_started = cr["rc"] == 0
         _invalidate_slots_cache()
-        return self._reply(200, {"created": True, "duration_ms": ms, **plan})
+        resp = {"created": True, "duration_ms": ms,
+                "claude_started": claude_started,
+                "model": model,
+                "session": _tmux_session_name(slot),
+                **plan}
+        if not claude_started:
+            resp["claude_error"] = {
+                "rc":          cr["rc"],
+                "stderr_tail": (cr["stderr"] or "").splitlines()[-4:],
+                "hint":        "call start_claude_on_slot to retry",
+            }
+        return self._reply(200, resp)
 
     def _handle_slot_start_claude(self, body: bytes, q: dict):
         payload, slot = self._parse_lifecycle(body, q)

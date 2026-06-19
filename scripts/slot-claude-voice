@@ -99,6 +99,10 @@ case "$ACTION" in
     log_info "Setting up HQ directory (canonical .env* source for voice-created slots)..."
     ensure_hq_dir "$SLOT_REMOTE_HOST" || log_warn "HQ setup failed; new slots will fall back to sibling env"
 
+    log_info "Ensuring GitHub CLI (gh) is available on slot..."
+    ensure_gh_installed "$SLOT_REMOTE_HOST" || log_warn "gh install failed; Claude on new slots will fall back to api.github.com curls"
+    sync_gh_auth_to_host "$SLOT_REMOTE_HOST" || log_warn "gh auth sync failed; run \`gh auth login\` on slot host manually"
+
     log_info "Writing bridge env (and running one-shot v2.15 schema/backfill migration)..."
     write_bridge_env "$SLOT_REMOTE_HOST"
 

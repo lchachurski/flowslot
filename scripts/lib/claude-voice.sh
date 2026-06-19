@@ -174,6 +174,62 @@ ensure_bridge_deps_installed() {
 # Back-compat alias — old callers.
 ensure_python3_installed() { ensure_bridge_deps_installed "$@"; }
 
+# v2.17+: install the GitHub CLI on the slot host. Claude inside voice-created
+# slots needs `gh` to interact with PRs/issues — falling back to raw
+# api.github.com curls works but trains the agent (and the user) to think the
+# slot is half-broken. Adds the official cli.github.com apt source on first
+# install, skips otherwise.
+ensure_gh_installed() {
+  local host="$1"
+  if ssh "$host" 'command -v gh >/dev/null 2>&1' 2>/dev/null; then
+    return 0
+  fi
+  log_info "Installing GitHub CLI (gh) on slot..."
+  ssh "$host" bash <<'REMOTE_GH_INSTALL'
+    set -e
+    # Official install steps from https://github.com/cli/cli/blob/trunk/docs/install_linux.md
+    type -p curl >/dev/null || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y curl >/dev/null
+    sudo mkdir -p -m 755 /etc/apt/keyrings
+    out="/etc/apt/keyrings/githubcli-archive-keyring.gpg"
+    if [ ! -s "$out" ]; then
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | sudo tee "$out" >/dev/null
+      sudo chmod go+r "$out"
+    fi
+    list="/etc/apt/sources.list.d/github-cli.list"
+    if [ ! -s "$list" ]; then
+      arch="$(dpkg --print-architecture)"
+      echo "deb [arch=$arch signed-by=$out] https://cli.github.com/packages stable main" \
+        | sudo tee "$list" >/dev/null
+    fi
+    sudo apt-get update -qq
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y gh >/dev/null
+REMOTE_GH_INSTALL
+}
+
+# v2.17+: sync the Mac's already-authenticated `gh` session to the slot host,
+# then run `gh auth setup-git` there so any later `git push` over https can use
+# the same credentials. The Mac is assumed to be already `gh auth login`'d —
+# we read its hosts.yml directly. No new secret to manage; reuses the user's
+# existing GitHub PAT.
+sync_gh_auth_to_host() {
+  local host="$1"
+  local local_hosts="$HOME/.config/gh/hosts.yml"
+  if [ ! -f "$local_hosts" ]; then
+    log_error "No gh config at $local_hosts on this Mac."
+    log_error "Run \`gh auth login\` first, then re-run \`slot claude voice enable\`."
+    return 1
+  fi
+  log_info "Syncing local gh auth (~/.config/gh/hosts.yml) to slot host..."
+  ssh "$host" 'mkdir -p "$HOME/.config/gh" && chmod 700 "$HOME/.config/gh"'
+  # Use scp + explicit mode so the file lands with 600 on the slot.
+  scp -q "$local_hosts" "$host:.config/gh/hosts.yml"
+  ssh "$host" 'chmod 600 "$HOME/.config/gh/hosts.yml"'
+  # Wire git push https → gh credential helper so future `git push` from
+  # voice-created slots Just Works without prompting for a password.
+  ssh "$host" 'gh auth setup-git 2>/dev/null || true'
+}
+
 # Set up /srv/<project>/.flowslot-hq/ on the remote — the canonical source
 # for `.env*` files used by `slot_create_remote.sh`. Avoids the bridge having
 # to copy env from a sibling slot, which mixes per-slot drift back into new
