@@ -8,6 +8,45 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.18.0] - 2026-07-20
+
+### Added
+
+- **Caller-ID access gate for inbound voice calls.** ElevenLabs
+  Conversational AI has no native phone-caller allowlist, and the trial
+  Twilio number is dialable by anyone who knows it. `voice enable` /
+  `voice agent-push` now injects a hard access-gate rule at the very top
+  of the agent system prompt: on every call, the agent compares
+  `{{system__caller_id}}` (auto-provided by ElevenLabs) against a
+  configured allowlist of exactly one number, and if they don't match
+  says "Wrong number." and invokes the `end_call` system tool to hang
+  up. Overrides every other rule in the prompt. New config var
+  **`FLOWSLOT_ALLOWED_CALLER`** in `.slotconfig` (E.164 format, e.g.
+  `+48123456789`) — the number lives ONLY in the gitignored
+  `.slotconfig` and gets substituted into the live agent's prompt at
+  push time via a `{{FLOWSLOT_ALLOWED_CALLER}}` placeholder. Never
+  touches the repo.
+- **`end_call` built-in system tool** is now enabled automatically by
+  `agent-push`. Required for the gate above to actually terminate calls
+  (previously the agent could only say a farewell, not hang up).
+  Kept in a second PATCH — sending `built_in_tools` alongside
+  `tools: [...]` in the same call caused the API to silently drop the
+  enabled state.
+
+### Migration
+
+If you were on v2.17.x with voice enabled, run:
+
+```bash
+slot self upgrade                              # v2.18.0
+echo 'FLOWSLOT_ALLOWED_CALLER="+YOURNUMBER"' >> ~/development/<project>/.slotconfig
+slot claude voice agent-push                   # gate goes live immediately
+```
+
+If `FLOWSLOT_ALLOWED_CALLER` is unset when you push, the gate rejects
+ALL callers by design (fail-closed). `agent-push` warns loudly in that
+case.
+
 ## [2.17.1] - 2026-06-19
 
 ### Fixed

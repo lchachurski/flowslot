@@ -210,13 +210,17 @@ case "$ACTION" in
     [ -n "${FLOWSLOT_BRIDGE_HMAC_SECRET:-}" ] || die "FLOWSLOT_BRIDGE_HMAC_SECRET not set — run 'slot claude voice enable' first."
     [ -n "${FLOWSLOT_ELEVENLABS_API_KEY:-}" ] || die "FLOWSLOT_ELEVENLABS_API_KEY not set in .slotconfig."
     [ -n "${FLOWSLOT_ELEVENLABS_AGENT_ID:-}" ] || die "FLOWSLOT_ELEVENLABS_AGENT_ID not set in .slotconfig."
+    if [ -z "${FLOWSLOT_ALLOWED_CALLER:-}" ]; then
+      log_warn "FLOWSLOT_ALLOWED_CALLER not set in .slotconfig — pushing anyway; the caller-ID gate will REJECT ALL calls until you set it (E.164, e.g. +48123456789)."
+    fi
     log_info "Pushing tool defs + system prompt to ElevenLabs agent ${FLOWSLOT_ELEVENLABS_AGENT_ID}..."
     push_agent_to_elevenlabs \
       "$FLOWSLOT_ROOT" \
       "https://${FQDN}" \
       "$FLOWSLOT_BRIDGE_HMAC_SECRET" \
       "$FLOWSLOT_ELEVENLABS_API_KEY" \
-      "$FLOWSLOT_ELEVENLABS_AGENT_ID"
+      "$FLOWSLOT_ELEVENLABS_AGENT_ID" \
+      "${FLOWSLOT_ALLOWED_CALLER:-}"
     ;;
 
   # --------------------------------------------------------------------------

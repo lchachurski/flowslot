@@ -593,16 +593,17 @@ push_agent_to_elevenlabs() {
   local hmac_secret="$3"
   local api_key="$4"
   local agent_id="$5"
+  local allowed_caller="${6:-}"
 
   local tools_file="$flowslot_root/templates/agent-tools.json"
   local prompt_file="$flowslot_root/templates/agent-system-prompt.md"
   [ -f "$tools_file" ]  || { log_error "Missing $tools_file"; return 1; }
   [ -f "$prompt_file" ] || { log_error "Missing $prompt_file"; return 1; }
 
-  python3 - "$tools_file" "$prompt_file" "$funnel_url" "$hmac_secret" "$api_key" "$agent_id" <<'PY'
+  python3 - "$tools_file" "$prompt_file" "$funnel_url" "$hmac_secret" "$api_key" "$agent_id" "$allowed_caller" <<'PY'
 import json, sys, urllib.request, urllib.error
 
-tools_file, prompt_file, funnel_url, hmac_secret, api_key, agent_id = sys.argv[1:7]
+tools_file, prompt_file, funnel_url, hmac_secret, api_key, agent_id, allowed_caller = sys.argv[1:8]
 ELEVEN = "https://api.elevenlabs.io/v1/convai/agents"
 
 # 1. Load + substitute the flowslot template.
@@ -610,6 +611,10 @@ raw = open(tools_file).read()
 raw = raw.replace("{{BASE_URL}}", funnel_url).replace("{{FLOWSLOT_BRIDGE_HMAC_SECRET}}", hmac_secret)
 src = json.loads(raw)
 prompt_text = open(prompt_file).read()
+# Caller-ID gate substitution — never embed the real number in the template;
+# it comes from .slotconfig (gitignored). If unset, leave the placeholder
+# unresolved so the gate fails closed for every caller.
+prompt_text = prompt_text.replace("{{FLOWSLOT_ALLOWED_CALLER}}", allowed_caller or "__unset__")
 
 
 def to_eleven(t):
@@ -682,13 +687,40 @@ patch = {
 
 req("PATCH", patch)
 
-# 4. Verify round-trip.
+# 3b. Second PATCH: enable the `end_call` system tool so the caller-ID gate
+# at the top of the system prompt can actually hang up on unauthorized
+# callers. Kept in a SEPARATE PATCH because when sent in the same PATCH as
+# `tools: [...]`, the API silently drops enabled built_in_tools entries.
+# Sending only built_in_tools works reliably. Minimal shape (name +
+# description) — API auto-fills type/params server-side.
+req("PATCH", {
+    "conversation_config": {
+        "agent": {
+            "prompt": {
+                "built_in_tools": {
+                    "end_call": {
+                        "name":        "end_call",
+                        "description": "End the current phone call. Use when the caller is unauthorized (failed the access gate at the top of the system prompt), or when the caller says goodbye / hangs up / task is complete.",
+                    }
+                }
+            }
+        }
+    }
+})
+
+# 4. Verify round-trip. The live tools list includes any enabled built_in
+# system tools (end_call from step 3b), so filter those out before comparing
+# the webhook tool names we actually pushed.
 after = req("GET")
 after_tools = after["conversation_config"]["agent"]["prompt"]["tools"]
+after_built_in = after["conversation_config"]["agent"]["prompt"].get("built_in_tools") or {}
+enabled_built_in = [n for n, v in after_built_in.items() if v]
+webhook_after  = [t for t in after_tools if t.get("type") != "system"]
 names_expected = [t["name"] for t in tools_eleven]
-names_after    = [t["name"] for t in after_tools]
-print(f"[agent-push] expected {len(names_expected)} tools: {names_expected}")
-print(f"[agent-push] now live  {len(names_after)} tools: {names_after}")
+names_after    = [t["name"] for t in webhook_after]
+print(f"[agent-push] expected {len(names_expected)} webhook tools: {names_expected}")
+print(f"[agent-push] now live  {len(names_after)} webhook tools: {names_after}")
+print(f"[agent-push] built-in system tools enabled: {enabled_built_in}")
 
 # Spot-check: every tool carries the right token.
 mismatches = []
@@ -704,6 +736,6 @@ if set(names_after) != set(names_expected):
     print("[agent-push] WARNING: tool name set diverged after PATCH", file=sys.stderr)
     sys.exit(3)
 
-print(f"[agent-push] success: agent {agent_id} now serves {len(names_after)} tools, system prompt updated.")
+print(f"[agent-push] success: agent {agent_id} now serves {len(names_after)} webhook tools + {len(enabled_built_in)} built-in, system prompt updated.")
 PY
 }
