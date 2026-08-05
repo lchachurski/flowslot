@@ -201,6 +201,7 @@ def state_from_db(slot: str) -> dict:
             "last_event_ts": None,
             "bootstrapping": True,
             "output_tail": _last_output_tail(slot) if tmux_alive else None,
+            "needs_login": _claude_needs_login(slot) if tmux_alive else False,
         }
 
     status = "idle"
@@ -254,6 +255,7 @@ def state_from_db(slot: str) -> dict:
         "waiting_for_input": waiting,
         "last_claude_preview": _last_claude_preview(slot) if tmux_alive else None,
         "last_event_ts": last["ts"],
+        "needs_login": _claude_needs_login(slot) if tmux_alive else False,
     }
 
 
@@ -542,6 +544,27 @@ def _last_claude_preview(slot: str, max_chars: int = 240) -> str | None:
         return None
     last = lines[-1]
     return last[-max_chars:] if len(last) > max_chars else last
+
+
+# v2.19: Claude Code prints these two strings verbatim when its OAuth token
+# has expired and the REPL will 401 on the next input. Detecting them from
+# the tmux scrollback is the only signal we have — hooks don't fire for
+# auth failures, and the process stays alive at the prompt. Motivation:
+# conv_6801kxzvwkntexh83k9vhen2rvsc turn 30 (2026-07-20) where the agent
+# reported "idle and ready" for 5+ minutes while Claude was silently
+# blocked on an expired token, and the user had to notice manually.
+_NEEDS_LOGIN_RE = re.compile(
+    r"(OAuth access token has expired|Please run /login)"
+)
+
+
+def _claude_needs_login(slot: str) -> bool:
+    """True iff the tmux scrollback contains a Claude auth-expired banner."""
+    text = tmux_capture(slot, lines=120)
+    if not text:
+        return False
+    text = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", text)
+    return bool(_NEEDS_LOGIN_RE.search(text))
 
 
 def _last_output_tail(slot: str, lines: int = 40) -> str | None:

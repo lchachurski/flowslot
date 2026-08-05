@@ -45,7 +45,7 @@
     },
     {
       "name": "get_claude_state",
-      "description": "Return a structured snapshot of what Claude is doing on a specific slot right now. Use when the user asks about STATE (how's it going, is Claude stuck, what's it working on, is it done). Fast call; prefer over get_claude_last_output for status. If `tmux_alive` is false, no Claude session is running for that slot — suggest `slot claude --slot <name>`. IMPORTANT: if `bootstrapping: true` (the slot has no recorded events yet — usually because it was just created), DO NOT report 'idle/no response/Claude hasn't replied' from this tool alone. Read `output_tail` (multi-line buffer) on the same response, or call get_claude_last_output to see what's actually on screen — last_claude_preview is a single line and is misleading in this state.",
+      "description": "Return a structured snapshot of what Claude is doing on a specific slot right now. Use when the user asks about STATE (how's it going, is Claude stuck, what's it working on, is it done). Fast call; prefer over get_claude_last_output for status. If `tmux_alive` is false, no Claude session is running for that slot — suggest `slot claude --slot <name>`. IMPORTANT: if `bootstrapping: true` (the slot has no recorded events yet — usually because it was just created), DO NOT report 'idle/no response/Claude hasn't replied' from this tool alone. Read `output_tail` (multi-line buffer) on the same response, or call get_claude_last_output to see what's actually on screen — last_claude_preview is a single line and is misleading in this state. ALSO IMPORTANT: if `needs_login: true`, Claude's OAuth has expired and it CANNOT process any input until re-auth — refuse to inject any messages and tell the user to attach the tmux session and run `/login` from a terminal.",
       "method": "GET",
       "url": "{{BASE_URL}}/bridge/state",
       "query": {
@@ -71,7 +71,8 @@
           "last_claude_preview": { "type": ["string", "null"] },
           "last_event_ts":     { "type": ["integer", "null"] },
           "bootstrapping":     { "type": "boolean", "description": "True when no events exist for this slot yet (fresh-created or hooks not firing). Read output_tail or call get_claude_last_output." },
-          "output_tail":       { "type": ["string", "null"], "description": "Multi-line tmux scrollback. Populated only when bootstrapping=true." }
+          "output_tail":       { "type": ["string", "null"], "description": "Multi-line tmux scrollback. Populated only when bootstrapping=true." },
+          "needs_login":       { "type": "boolean", "description": "True when Claude's OAuth token has expired on this slot. Overrides status — Claude cannot process input until user runs /login in the tmux session. Refuse inject_message and tell the user to re-auth." }
         }
       }
     },

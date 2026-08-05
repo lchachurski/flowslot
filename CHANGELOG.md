@@ -8,6 +8,28 @@ See [RELEASES.md](RELEASES.md) for versioning details.
 
 ## [Unreleased]
 
+## [2.19.0] - 2026-08-05
+
+### Added
+
+- **`needs_login` field on `get_claude_state`** — bridge scans the tmux
+  scrollback for Claude Code's OAuth-expired banner (`OAuth access token
+  has expired` / `Please run /login`) and surfaces it as
+  `needs_login: true` in the state response, alongside every other
+  status/bootstrapping signal. The voice agent's system prompt has a
+  matching rule: on `needs_login: true`, stop reporting "idle" or "ready"
+  and refuse to inject — tell the user to attach the tmux session and
+  run `/login` before Claude can process anything.
+
+  Motivation: `conv_6801kxzvwkntexh83k9vhen2rvsc` turn 30 (2026-07-20).
+  The agent reported "Claude is idle and ready" for several turns while
+  Claude was silently blocked on an expired OAuth token, and the user
+  had to notice manually after a message was injected and Claude
+  emitted the auth error. Hooks don't fire for auth failures — the
+  process stays alive at the prompt — so tmux capture is the only
+  signal we have. Cheap check, added to both branches of
+  `state_from_db`.
+
 ## [2.18.0] - 2026-07-20
 
 ### Added
